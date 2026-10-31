@@ -18,7 +18,7 @@ Environment variables override YAML.
 | `REDMINE_API_KEY` | API key. Alternative: `REDMINE_USERNAME` with `REDMINE_PASSWORD` |
 | `REDMINE_READ_ONLY` | `true` blocks every change, even approved ones |
 | `REDMINE_CA_BUNDLE` | PEM file of your company certificate authority |
-| `REDMINE_PROJECTS` | Limit the harness to these projects (ids or identifiers, comma-separated) |
+| `REDMINE_PROJECTS` | Limit the harness to these projects (code from the project's address, number or name; comma-separated) |
 | `REDMINE_IMPERSONATE` | Admin keys only: act as this login (`X-Redmine-Switch-User`) |
 | `HARNESS_TIMEZONE` | IANA timezone (default `Asia/Kolkata`) |
 | `EMAIL_ENABLED` | `true` lets the scheduler really send the daily e-mail |

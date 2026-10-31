@@ -105,7 +105,9 @@
   <section class="content">
     {% if sync and sync.error and sync.ready %}
     <div class="banner bad">Couldn't update from Redmine ({{ sync.error_at_local }}): {{ sync.error }}<br>
-      Showing the local copy from {{ sync.synced_at_local or 'earlier' }}. It retries automatically &mdash; check <code>REDMINE_URL</code>, VPN or proxy if this stays.</div>
+      Showing the local copy from {{ sync.synced_at_local or 'earlier' }}.
+      {% if 'REDMINE_PROJECTS' in sync.error %}Fix <code>REDMINE_PROJECTS</code> in <code>.env</code>, then restart the dashboard.
+      {% else %}It retries automatically &mdash; check <code>REDMINE_URL</code>, VPN or proxy if this stays.{% endif %}</div>
     {% endif %}
     {% if notice %}<div class="banner warn">{{ notice }}</div>{% endif %}
     {% block content %}{% endblock %}

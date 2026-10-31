@@ -11,7 +11,10 @@
     After this first download only the changes are fetched, every {{ '%g' % settings.sync.interval_minutes }} minutes, in the background.</p>
   <div class="progress"><div class="progress-bar" id="sync-bar" style="width: {{ pct }}%"></div></div>
   <p id="sync-phase">{{ status.phase or "Starting" }}{% if status.total %} ({{ "{:,}".format(status.done) }} of {{ "{:,}".format(status.total) }}){% endif %}</p>
-  {% if status.error %}<div class="banner bad">The last attempt failed: {{ status.error }}<br>Retrying automatically &mdash; check <code>REDMINE_URL</code>, VPN or proxy if this stays.</div>{% endif %}
+  {% if status.error %}<div class="banner bad">The last attempt failed: {{ status.error }}<br>
+    {% if 'REDMINE_PROJECTS' in status.error %}Fix <code>REDMINE_PROJECTS</code> in <code>.env</code>, then restart the dashboard
+    (<code>python harness.py check</code> shows what each value matches).
+    {% else %}Retrying automatically &mdash; check <code>REDMINE_URL</code>, VPN or proxy if this stays.{% endif %}</div>{% endif %}
   <p class="muted small">Large Redmine? Download only your team's projects: set <code>REDMINE_PROJECTS=your-project</code>
     in <code>.env</code> and restart the dashboard. This page refreshes by itself.</p>
 </div>

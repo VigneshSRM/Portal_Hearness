@@ -27,7 +27,8 @@ from typing import Any, Callable, Iterable
 
 from . import __version__, analytics
 from .config import Settings, load_settings, mask_secret
-from .errors import HarnessError, PermissionDenied, RedmineConnectionError, RedmineError
+from .errors import HarnessError, NotFoundError, PermissionDenied, RedmineConnectionError, RedmineError
+from .projects import ProjectMatch, UnknownProjectError, explain_not_found, match_project
 
 log = logging.getLogger("redmine_agent")
 
@@ -218,17 +219,59 @@ def cmd_check(ctx: Ctx) -> int:
         u = h.client.current_user()
         return f"{u.get('login')} (id {u.get('id')}, admin={u.get('admin')})"
 
+    class Skip(Exception):
+        """Shown as [skip] - the reason was already reported by an earlier check."""
+
+    refs = [str(p).strip() for p in s.redmine.project_ids if str(p).strip()]
+    cache: dict[str, Any] = {}
+
+    def visible_projects() -> list[dict[str, Any]]:
+        if "projects" not in cache:
+            cache["projects"] = h.client.list_projects()
+        return cache["projects"]
+
+    def project_matches() -> list[ProjectMatch]:
+        return [match_project(ref, visible_projects(), source="REDMINE_PROJECTS") for ref in refs]
+
+    def project_filter() -> str:
+        try:
+            matches = project_matches()
+            for m in matches:
+                if m.id is None:  # a code that is not in the project list: does Redmine know it?
+                    try:
+                        h.client.get("/issues", project_id=m.api_value, status_id="*", limit=1)
+                    except NotFoundError as exc:
+                        raise HarnessError(explain_not_found([m.ref], visible_projects())) from exc
+        except HarnessError:
+            cache["filter_failed"] = True
+            raise
+        detail = "; ".join(m.describe() for m in matches)
+        if any(not m.exact for m in matches):
+            detail += f" - works; clearer in .env: REDMINE_PROJECTS={','.join(m.code for m in matches)}"
+        return detail
+
     def open_in_scope() -> str:
-        refs = [p for p in s.redmine.project_ids if str(p).strip()] or [None]
+        fix_first = "skipped - fix REDMINE_PROJECTS first (see the project filter line above)"
+        if cache.get("filter_failed"):
+            raise Skip(fix_first)
+        try:
+            scopes: list[ProjectMatch | None] = list(project_matches()) if refs else [None]
+        except UnknownProjectError as exc:
+            raise Skip(fix_first) from exc
         total = 0
-        for ref in refs:
+        for match in scopes:
             params: dict[str, Any] = {"status_id": "open", "limit": 1}
-            if ref:
-                params["project_id"] = ref
-            total += int((h.client.get("/issues", **params) or {}).get("total_count") or 0)
-        where = ", ".join(s.redmine.project_ids) if s.redmine.project_ids else "all projects"
+            if match is not None:
+                params["project_id"] = match.api_value
+            try:
+                total += int((h.client.get("/issues", **params) or {}).get("total_count") or 0)
+            except NotFoundError as exc:
+                if match is None or match.id is not None:
+                    raise
+                raise HarnessError(explain_not_found([match.ref], visible_projects())) from exc
+        where = ", ".join(m.code for m in scopes if m is not None) or "all projects"
         tip = ""
-        if total > 3000 and not s.redmine.project_ids:
+        if total > 3000 and not refs:
             tip = " - tip: set REDMINE_PROJECTS in .env to download only your team's projects"
         return f"{total:,} in {where}{tip}"
 
@@ -242,7 +285,8 @@ def cmd_check(ctx: Ctx) -> int:
                                              for x in h.client.list_issue_statuses()) + "  (* = closed)", True),
         ("trackers", lambda: ", ".join(x["name"] for x in h.client.list_trackers()), False),
         ("priorities", lambda: ", ".join(x["name"] for x in h.client.list_priorities()), False),
-        ("projects", lambda: f"{len(h.client.list_projects())} visible", False),
+        ("projects", lambda: f"{len(visible_projects())} visible", False),
+        *([("project filter", project_filter, True)] if refs else []),
         ("open tickets", open_in_scope, False),
         ("open issues assigned to me", mine, False),
         ("time tracking", lambda: f"{len(h.client.list_time_entries(max_items=5))} recent entries readable", False),
@@ -260,6 +304,8 @@ def cmd_check(ctx: Ctx) -> int:
             detail = fn()
             results.append({"name": label, "ok": True, "detail": detail,
                             "ms": round((time.monotonic() - started) * 1000)})
+        except Skip as exc:
+            results.append({"name": label, "ok": False, "skipped": True, "detail": str(exc)})
         except RedmineConnectionError as exc:
             ok, unreachable = False, True
             results.append({"name": label, "ok": False, "detail": str(exc)})
@@ -281,7 +327,12 @@ def cmd_check(ctx: Ctx) -> int:
                 extra += " (slow Redmine - the dashboard's local copy keeps pages fast anyway)"
         print(f"  [{flag:4}] {r['name']}: {r['detail']}{extra}")
     print()
-    print("All good." if ok else "Some checks failed - see messages above.")
+    if not ok:
+        print("Some checks failed - see messages above.")
+    elif any(not r["ok"] and not r.get("skipped") for r in results):
+        print("Connected to Redmine, but some optional checks failed - see the [FAIL] lines above.")
+    else:
+        print("All good.")
     return 0 if ok else 1
 
 

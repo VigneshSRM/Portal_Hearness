@@ -21,7 +21,7 @@ redmine:
   max_items: 5000               # safety cap per query
   impersonate: ""               # X-Redmine-Switch-User (admin API keys only)
   read_only: false              # true = hard block on ALL changes (approvals cannot execute)
-  project_ids: []               # limit the harness to these projects (ids or identifiers); [] = all visible
+  project_ids: []               # limit the harness to these projects (code, number or name); [] = all visible
 
 sla:
   # First matching rule wins. Match on priority / tracker / project ("A|B" = either).
