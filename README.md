@@ -115,7 +115,7 @@ Where things are stored:
 |---|---|---|
 | `.env` | **Your secrets and personal settings**: Redmine URL and API key, SMTP login, dashboard login | **Never** (git-ignored) |
 | `config/settings.yaml` | **Team policies**: SLA targets, business hours, holidays, closure rules, team, report presets | No (git-ignored); the template is `config/settings.example.yaml` |
-| `data/` | Local copy of Redmine (`redmine_cache.db`, safe to delete), approval queue and audit log (`harness.db`), closure templates, approver PINs (hashed), e-mail previews (`outbox/`), CSV exports (`exports/`) | Never |
+| `data/` | Local copy of Redmine (`redmine_cache.db`, safe to delete), dashboard name and logo (`branding/`), approval queue and audit log (`harness.db`), closure templates, approver PINs (hashed), e-mail previews (`outbox/`), CSV exports (`exports/`) | Never |
 | `.agents/skills/`, `.claude/skills/` | The agent skills your AI terminal reads | Yes |
 
 ---
@@ -332,10 +332,18 @@ DASHBOARD_PORT=8000
 DASHBOARD_USERNAME=              # set both to require a login (do this if you use 0.0.0.0)
 DASHBOARD_PASSWORD=
 # DASHBOARD_PUBLIC_URL=https://redmine-agent.yourcompany.com   # used for "Review now" links in e-mails
+# DASHBOARD_BRAND_NAME=Acme IT Service Desk                     # name in the top bar (default: Redmine Agent)
+# DASHBOARD_LOGO=config/logo.png                                # your logo in the top bar
 ```
 
 When a login is set, the login name is recorded as the reviewer on approvals. For use across the
 network, put the dashboard behind an HTTPS reverse proxy (nginx, IIS, Caddy...).
+
+**Your name and logo.** The easiest way is in the dashboard itself: **More → Name & logo**. There you
+can type the name and an optional subtitle, upload a logo (PNG, JPG, SVG, WebP or GIF, up to 1 MB),
+remove it, or reset to the defaults. Changes are saved in `data/branding/` and recorded in the audit
+log. `DASHBOARD_BRAND_NAME` and `DASHBOARD_LOGO` in `.env` set the defaults (handy on a server), and
+what you save on the page takes precedence.
 
 ### 5.6 Team policies (SLA, closure rules, team, reports)
 
@@ -411,6 +419,8 @@ Everything below goes in **`.env`**. Values in `config/settings.yaml` are the te
 | `DASHBOARD_USERNAME` | | Dashboard login name |
 | `DASHBOARD_PASSWORD` | | Dashboard login password |
 | `DASHBOARD_PUBLIC_URL` | | Dashboard link used in e-mails |
+| `DASHBOARD_BRAND_NAME` | | Name in the dashboard's top bar (default `Redmine Agent`; can also be changed on the dashboard) |
+| `DASHBOARD_LOGO` | | Logo image file for the top bar, e.g. `config/logo.png` (can also be uploaded on the dashboard) |
 | `LLM_BASE_URL` | | Only for the built-in `chat` command ([section 7](#7-use-the-agent-from-your-ai-terminal)) |
 | `LLM_API_KEY` | | Only for the built-in `chat` command |
 | `LLM_MODEL` | | Only for the built-in `chat` command |
@@ -517,10 +527,20 @@ and the command line ([section 13](#13-command-cheat-sheet)). There are two othe
 python harness.py dashboard
 ```
 
-Open http://localhost:8000. Every page has period and project filters and CSV export buttons. The
-header shows when the data was last updated. The **↻** button fetches the latest changes from Redmine
-without waiting for the next background update. Pages are built from the local copy, so they open
-instantly ([section 5.3](#53-projects-and-speed-local-copy)).
+Open http://localhost:8000.
+
+**The top bar** is white with black text, and the page you are on is highlighted in red.
+- **Left:** your logo and name.
+- **Middle:** the main pages.
+- **More:** Closure templates, Audit log, and Name & logo.
+- **Right:** a *READ-ONLY* flag when changes are blocked, when the data was last updated, and your
+  account menu.
+
+On a small screen, every page is behind the **☰** menu button.
+
+Every page has period and project filters and CSV export buttons. The **↻** button fetches the
+latest changes from Redmine without waiting for the next background update. Pages are built from the
+local copy, so they open instantly ([section 5.3](#53-projects-and-speed-local-copy)).
 
 | Page | What you see / do |
 |---|---|
@@ -530,10 +550,11 @@ instantly ([section 5.3](#53-projects-and-speed-local-copy)).
 | **Performance** | Throughput, weekly trend, average / median / 90th-percentile resolution, reopen rate, estimate accuracy |
 | **Time spent** | Hours by person, project, activity and tracker; daily trend; most time-consuming tickets |
 | **My tickets** | Your tickets sorted by urgency, with a **Draft closure** button |
-| **Reports & CSV** | Build a custom report, preview it, download the CSV |
-| **Closure templates** | Create, edit, preview and delete templates |
+| **Reports** | Build a custom report, preview it, download the CSV |
+| **Closure templates** (More) | Create, edit, preview and delete templates |
 | **Approvals** | Review queue: edit the note, **Approve & close**, reject. Also closure candidates and history |
-| **Audit log** | Every draft, approval, closure, denied attempt, export and e-mail |
+| **Audit log** (More) | Every draft, approval, closure, denied attempt, export and e-mail |
+| **Name & logo** (More) | Your company name, subtitle and logo in the top bar ([section 5.5](#55-web-dashboard-settings)) |
 
 **To approve on the Approvals page:**
 1. Enter your **name**. This is filled in automatically if a dashboard login is set.

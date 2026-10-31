@@ -100,6 +100,9 @@ dashboard:
   port: 8000
   default_days: 30
   cache_ttl_seconds: 120
+  brand_name: ${DASHBOARD_BRAND_NAME:-Redmine Agent}   # top bar name (or set it on the dashboard: More -> Name & logo)
+  brand_subtitle: Portal Harness
+  logo: ${DASHBOARD_LOGO:-}     # e.g. config/logo.png (PNG, JPG, SVG, WebP or GIF, up to 1 MB)
   username: ${DASHBOARD_USERNAME:-}
   password: ${DASHBOARD_PASSWORD:-}
   public_url: ""

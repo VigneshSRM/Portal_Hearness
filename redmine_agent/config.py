@@ -163,6 +163,10 @@ class DashboardConfig:
     username: str = ""
     password: str = ""
     public_url: str = ""
+    # Top bar branding (defaults - the dashboard's "Name & logo" page can change them)
+    brand_name: str = "Redmine Agent"
+    brand_subtitle: str = "Portal Harness"
+    logo: str = ""                       # image file (PNG/JPG/SVG/WebP/GIF), relative to the project folder
 
 
 @dataclass
@@ -363,6 +367,8 @@ _ENV_OVERRIDES: dict[str, tuple[str, ...]] = {
     "DASHBOARD_USERNAME": ("dashboard", "username"),
     "DASHBOARD_PASSWORD": ("dashboard", "password"),
     "DASHBOARD_PUBLIC_URL": ("dashboard", "public_url"),
+    "DASHBOARD_BRAND_NAME": ("dashboard", "brand_name"),
+    "DASHBOARD_LOGO": ("dashboard", "logo"),
     "SYNC_INTERVAL_MINUTES": ("sync", "interval_minutes"),
     "SYNC_HISTORY_DAYS": ("sync", "history_days"),
     "LLM_BASE_URL": ("llm", "base_url"),

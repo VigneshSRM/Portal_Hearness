@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}Name & logo{% endblock %}
+{% block heading %}Name &amp; logo{% endblock %}
+{% block subheading %}How the dashboard is branded in the top bar &middot; saved in <code>data/branding/</code> &middot; every change is audited{% endblock %}
+{% block filters %}
+<form class="filters" onsubmit="return false">
+  <label>Your name (for the audit log) <input id="reviewerName" placeholder="Your name" oninput="Harness.setReviewer(this.value)" required></label>
+</form>
+{% endblock %}
+{% block content %}
+<div class="grid-2">
+  <div class="card">
+    <div class="card-head"><h3>Name</h3></div>
+    <label class="field"><span>Name shown in the top bar</span>
+      <input id="brandName" maxlength="60" value="{{ brand.name }}" oninput="Harness.previewBrand()" placeholder="e.g. Acme IT Service Desk"></label>
+    <label class="field"><span>Subtitle <span class="muted">(optional, shown under the name)</span></span>
+      <input id="brandSubtitle" maxlength="80" value="{{ brand.subtitle }}" oninput="Harness.previewBrand()" placeholder="e.g. Ticket dashboard"></label>
+    <p class="muted small">The top bar changes as you type. Click <strong>Save name</strong> to keep it.</p>
+    <div class="row gap">
+      <button class="btn primary" type="button" onclick="Harness.saveBranding()">Save name</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><h3>Logo</h3></div>
+    <div class="logo-preview">
+      {% if brand.logo_url %}
+      <img src="{{ brand.logo_url }}" alt="Current logo">
+      <span class="muted small">{% if brand.logo_source == 'settings' %}From <code>{{ settings_logo }}</code> (DASHBOARD_LOGO){% else %}Uploaded here{% endif %}</span>
+      {% else %}
+      <span class="brand-mark big" aria-hidden="true">{{ brand.initial }}</span>
+      <span class="muted small">No logo yet &mdash; the first letter of the name is shown in a red square.</span>
+      {% endif %}
+    </div>
+    <div class="row" style="gap: 8px">
+      <label class="btn primary file-btn">{% if brand.logo_url %}Replace logo&hellip;{% else %}Upload logo&hellip;{% endif %}
+        <input type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml" onchange="Harness.uploadLogo(this)">
+      </label>
+      {% if brand.logo_url %}<button class="btn" type="button" onclick="Harness.removeLogo()">Remove logo</button>{% endif %}
+    </div>
+    <p class="muted small">PNG, JPG, SVG, WebP or GIF, up to {{ max_logo_label }}. A wide logo about 180 &times; 40 pixels on a
+      white or transparent background looks best.</p>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-head"><h3>How the top bar looks</h3></div>
+  <div class="nav-sample" aria-hidden="true">
+    <span>Overview</span><span class="on">SLA</span><span>Team</span><span>Performance</span><span>My tickets</span>
+  </div>
+  <p class="muted small">White background, black text, and the page you are on is highlighted in red.</p>
+</div>
+
+<div class="card">
+  <div class="card-head"><h3>Defaults</h3>{% if brand.custom %}<span class="spacer"></span><button class="btn" type="button" onclick="Harness.resetBranding()">Reset to defaults</button>{% endif %}</div>
+  <p>Defaults can also be set in <code>.env</code>, which is handy on a server. What you save on this page takes
+    precedence; <strong>Reset to defaults</strong> goes back to them.</p>
+  <pre class="note-preview">DASHBOARD_BRAND_NAME=Acme IT Service Desk
+DASHBOARD_LOGO=config/logo.png</pre>
+  {% if brand.updated_by %}<p class="muted small">Last changed by {{ brand.updated_by }} &middot; {{ brand.updated_at }}</p>{% endif %}
+</div>
+{% endblock %}
+{% block scripts %}<script>Harness.authUser = {{ auth_user|tojson }}; Harness.maxLogoBytes = {{ max_logo_bytes }}; Harness.initReviewer();</script>{% endblock %}

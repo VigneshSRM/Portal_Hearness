@@ -86,6 +86,7 @@ redmine_agent/
   client.py            Redmine REST client (auth, pagination, retries, error hints)
   guard.py             WriteGuard + Approval (permission enforcement)
   approvers.py         registered approvers with salted-hash PINs
+  branding.py          dashboard name & logo (checked uploads, data/branding/)
   models.py            Issue / Journal / TimeEntry views over API JSON
   data.py              read layer + Snapshot (issues, time entries, journals): local copy or live
   local_copy.py        SQLite copy of Redmine + background updates (why pages open in milliseconds)
