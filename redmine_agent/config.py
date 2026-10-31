@@ -12,6 +12,7 @@ String values in the YAML file may reference environment variables with
 
 from __future__ import annotations
 
+import copy
 import os
 import re
 from dataclasses import dataclass, field, fields, is_dataclass
@@ -216,8 +217,9 @@ class Settings:
 
     @property
     def report_presets(self) -> dict[str, dict[str, Any]]:
+        """Built-in presets plus the ones in settings.yaml (same name = yours wins)."""
         presets = self.reports.get("presets") if isinstance(self.reports, dict) else None
-        return dict(presets or {})
+        return copy.deepcopy({**DEFAULT_REPORT_PRESETS, **dict(presets or {})})
 
 
 # --------------------------------------------------------------------------- loading
@@ -302,6 +304,18 @@ def _build(cls: type, data: dict[str, Any] | None) -> Any:
             setattr(obj, key, _coerce(raw, f.type, current))
     return obj
 
+
+# Report presets that work even without a settings.yaml (identical to config/settings.example.yaml).
+# Presets defined under reports.presets in settings.yaml are added; one with the same name replaces these.
+DEFAULT_REPORT_PRESETS: dict[str, dict[str, Any]] = {
+    "weekly-sla": {"title": "Weekly SLA report", "dataset": "sla", "days": 7,
+                   "date_field": "closed_on", "status": "closed"},
+    "open-backlog-by-assignee": {"title": "Open backlog by assignee", "dataset": "issues",
+                                 "date_field": "open_now", "status": "open",
+                                 "group_by": ["assigned_to", "priority"]},
+    "monthly-timesheet": {"title": "Monthly timesheet by person and project", "dataset": "time_entries",
+                          "days": 30, "group_by": ["user", "project"]},
+}
 
 _ENV_OVERRIDES: dict[str, tuple[str, ...]] = {
     "REDMINE_URL": ("redmine", "url"),

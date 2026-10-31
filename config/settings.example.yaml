@@ -1,6 +1,6 @@
 # =====================================================================================
 #  Portal Harness - Redmine Agent configuration
-#  Copy to config/settings.yaml (`python -m redmine_agent init` does it for you).
+#  Copy to config/settings.yaml (`python harness.py init` does it for you).
 #  Secrets belong in .env (or real environment variables), referenced as ${VAR}.
 # =====================================================================================
 
@@ -103,6 +103,8 @@ llm:                            # optional - only for `chat` (any OpenAI-compati
   query_params: {}              # e.g. {"api-version": "2024-10-21"}
 
 reports:
+  # These three presets are also built in. Add your own here; a preset with the same name replaces
+  # the built-in one. Run with: python harness.py export --preset <name>
   presets:
     weekly-sla:
       title: Weekly SLA report

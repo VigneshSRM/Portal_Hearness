@@ -62,7 +62,7 @@ Other safeguards:
 - **Read-only switch.** `REDMINE_READ_ONLY=true` (or `--read-only` on the CLI) blocks every write,
   including approved ones.
 - **Audit log.** Every draft, edit, approval, rejection, execution, denied attempt, export and
-  e-mail is recorded in `data/harness.db`. View it with `python -m redmine_agent audit` or on the
+  e-mail is recorded in `data/harness.db`. View it with `python harness.py audit` or on the
   dashboard's **Audit log** page.
 
 ## Who can approve

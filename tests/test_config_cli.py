@@ -66,7 +66,10 @@ def test_cli_export_and_templates(cli_env, capsys):
     out = cli_env / "r.csv"
     assert cli.main(["export", "--dataset", "issues", "--days", "7", "--group-by", "priority", "--out", str(out)]) == 0
     assert out.read_bytes().startswith(b"\xef\xbb\xbfPriority")
-    assert cli.main(["export", "--preset", "weekly-sla", "--out", str(out)]) == 2  # no presets in this config
+    # built-in presets work without a settings.yaml; unknown names are an error
+    assert cli.main(["export", "--preset", "weekly-sla", "--out", str(out)]) == 0
+    assert out.read_bytes().startswith(b"\xef\xbb\xbf")
+    assert cli.main(["export", "--preset", "no-such-preset", "--out", str(out)]) == 2
     assert cli.main(["templates", "list"]) == 0
     assert "bug-fixed" in capsys.readouterr().out
 
@@ -91,3 +94,25 @@ def test_cli_daily_overview_preview(cli_env, capsys):
     out = capsys.readouterr().out
     assert "Not sent (preview only)" in out
     assert list((cli_env / "data" / "outbox").glob("*.html"))
+
+
+def test_builtin_report_presets_match_example_and_merge_with_yours(tmp_path):
+    import yaml as _yaml
+
+    from redmine_agent.config import DEFAULT_REPORT_PRESETS, load_settings
+
+    example = _yaml.safe_load((REPO / "config" / "settings.example.yaml").read_text(encoding="utf-8"))
+    assert example["reports"]["presets"] == DEFAULT_REPORT_PRESETS, "keep the built-in presets in sync"
+
+    no_yaml = load_settings(base_dir=tmp_path, use_env=False)
+    assert set(no_yaml.report_presets) == set(DEFAULT_REPORT_PRESETS)
+
+    cfg = tmp_path / "settings.yaml"
+    cfg.write_text("reports:\n  presets:\n    weekly-sla: {title: Mine, dataset: issues, days: 7}\n"
+                   "    p1-open: {title: P1 open, dataset: issues, priority: Immediate, status: open}\n",
+                   encoding="utf-8")
+    s = load_settings(cfg, base_dir=tmp_path, use_env=False)
+    assert s.report_presets["weekly-sla"]["title"] == "Mine"          # same name: yours wins
+    assert "p1-open" in s.report_presets and "monthly-timesheet" in s.report_presets
+    s.report_presets["monthly-timesheet"]["group_by"].append("x")     # callers get copies
+    assert DEFAULT_REPORT_PRESETS["monthly-timesheet"]["group_by"] == ["user", "project"]

@@ -13,9 +13,9 @@ Pick **one** of the options below.
 ## Option A: built-in scheduler
 
 ```bash
-python -m redmine_agent schedule              # runs every day at email.send_time on email.send_days
-python -m redmine_agent schedule --run-now    # run once immediately, then keep scheduling
-python -m redmine_agent schedule --run-now --once   # run once and exit (handy for testing)
+python harness.py schedule                    # runs every day at email.send_time on email.send_days
+python harness.py schedule --run-now          # run once immediately, then keep scheduling
+python harness.py schedule --run-now --once   # run once and exit (handy for testing)
 ```
 
 The timezone is `timezone` in `settings.yaml` (default `Asia/Kolkata`).
@@ -24,8 +24,8 @@ The timezone is `timezone` in `settings.yaml` (default `Asia/Kolkata`).
 
 ```cron
 # m h  dom mon dow  command
-0 9 * * 1-5  cd /opt/portal-harness && .venv/bin/python -m redmine_agent close auto-draft >> data/cron.log 2>&1
-5 9 * * 1-5  cd /opt/portal-harness && .venv/bin/python -m redmine_agent daily-overview --send >> data/cron.log 2>&1
+0 9 * * 1-5  cd /opt/portal-harness && python3 harness.py close auto-draft >> data/cron.log 2>&1
+5 9 * * 1-5  cd /opt/portal-harness && python3 harness.py daily-overview --send >> data/cron.log 2>&1
 ```
 
 Make sure cron runs in your timezone, or adjust the hour (`CRON_TZ=Asia/Kolkata` works with cronie).
@@ -41,7 +41,7 @@ Description=Redmine agent daily overview
 [Service]
 Type=oneshot
 WorkingDirectory=/opt/portal-harness
-ExecStart=/opt/portal-harness/.venv/bin/python -m redmine_agent schedule --run-now --once
+ExecStart=/usr/bin/python3 /opt/portal-harness/harness.py schedule --run-now --once
 User=redmine-agent
 ```
 
@@ -64,7 +64,7 @@ sudo systemctl enable --now redmine-agent-daily.timer
 ```
 
 The dashboard can run as a normal service:
-`ExecStart=/opt/portal-harness/.venv/bin/python -m redmine_agent dashboard --host 127.0.0.1 --port 8000`,
+`ExecStart=/usr/bin/python3 /opt/portal-harness/harness.py dashboard --host 127.0.0.1 --port 8000`,
 behind nginx with HTTPS.
 
 ## Option D: Windows Task Scheduler
@@ -89,9 +89,9 @@ docker compose up -d
 ## Testing the e-mail safely
 
 ```bash
-python -m redmine_agent daily-overview            # preview only -> data/outbox/*.html
-python -m redmine_agent daily-overview --print    # also print the plain-text version
-python -m redmine_agent daily-overview --send --to you@example.com
+python harness.py daily-overview                  # preview only -> data/outbox/*.html
+python harness.py daily-overview --print          # also print the plain-text version
+python harness.py daily-overview --send --to you@example.com
 ```
 
 SMTP notes:
