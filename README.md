@@ -25,10 +25,11 @@ a **web dashboard**, or from the **command line**.
 5. [Configure: where everything goes](#5-configure-where-everything-goes)
    - [5.1 Create the configuration files](#51-create-the-configuration-files)
    - [5.2 Redmine API connection](#52-redmine-api-connection)
-   - [5.3 E-mail / SMTP settings](#53-e-mail--smtp-settings)
-   - [5.4 Web dashboard settings](#54-web-dashboard-settings)
-   - [5.5 Team policies (SLA, closure rules, team, reports)](#55-team-policies-sla-closure-rules-team-reports)
-   - [5.6 All settings at a glance](#56-all-settings-at-a-glance)
+   - [5.3 Projects and speed (local copy)](#53-projects-and-speed-local-copy)
+   - [5.4 E-mail / SMTP settings](#54-e-mail--smtp-settings)
+   - [5.5 Web dashboard settings](#55-web-dashboard-settings)
+   - [5.6 Team policies (SLA, closure rules, team, reports)](#56-team-policies-sla-closure-rules-team-reports)
+   - [5.7 All settings at a glance](#57-all-settings-at-a-glance)
 6. [Register yourself as an approver (PIN)](#6-register-yourself-as-an-approver-pin)
 7. [Use the agent from your AI terminal](#7-use-the-agent-from-your-ai-terminal)
 8. [Use the web dashboard](#8-use-the-web-dashboard)
@@ -64,7 +65,8 @@ python harness.py init
 ```
 
 3. Open **`.env`** in a text editor and fill in at least `REDMINE_URL` and `REDMINE_API_KEY`
-   ([section 5.2](#52-redmine-api-connection)).
+   ([section 5.2](#52-redmine-api-connection)). On a big Redmine, also set `REDMINE_PROJECTS` to your
+   team's projects ([section 5.3](#53-projects-and-speed-local-copy)).
 4. Check the connection, register yourself as approver, and open the dashboard:
 
    ```bash
@@ -73,7 +75,8 @@ python harness.py init
    python harness.py dashboard
    ```
 
-   The dashboard is at http://localhost:8000.
+   The dashboard is at http://localhost:8000. The first time, it downloads your tickets once (with a
+   progress bar); after that every page opens instantly.
 5. Optional: open your AI terminal **in this folder** (`claude`, `codex`, `gemini` or `copilot`) and ask:
    *"What are my most urgent tickets?"* ([section 7](#7-use-the-agent-from-your-ai-terminal)).
 
@@ -90,9 +93,13 @@ No Redmine to test with yet? Use the [demo mode](#15-try-it-without-a-real-redmi
       ├─ Command line    python harness.py <command>                   ├──► the harness ──► Redmine REST API
       └─ Scheduler       python harness.py schedule                    ┘         │          (your API key)
                                                                                ├──► SMTP server (daily e-mail)
-                                                                               └──► data/ (approval queue,
-                                                                                    audit log, templates, CSVs)
+                                                                               └──► data/ (local copy of Redmine,
+                                                                                    approval queue, audit log,
+                                                                                    templates, CSVs)
 ```
+
+Pages never wait for Redmine: they are built from a **local copy** of your tickets that a background
+thread keeps up to date, fetching only what changed ([section 5.3](#53-projects-and-speed-local-copy)).
 
 There are three permission levels:
 
@@ -108,7 +115,7 @@ Where things are stored:
 |---|---|---|
 | `.env` | **Your secrets and personal settings**: Redmine URL and API key, SMTP login, dashboard login | **Never** (git-ignored) |
 | `config/settings.yaml` | **Team policies**: SLA targets, business hours, holidays, closure rules, team, report presets | No (git-ignored); the template is `config/settings.example.yaml` |
-| `data/` | Approval queue and audit log (`harness.db`), closure templates, approver PINs (hashed), e-mail previews (`outbox/`), CSV exports (`exports/`) | Never |
+| `data/` | Local copy of Redmine (`redmine_cache.db`, safe to delete), approval queue and audit log (`harness.db`), closure templates, approver PINs (hashed), e-mail previews (`outbox/`), CSV exports (`exports/`) | Never |
 | `.agents/skills/`, `.claude/skills/` | The agent skills your AI terminal reads | Yes |
 
 ---
@@ -193,6 +200,7 @@ copy the key.
 REDMINE_URL=https://redmine.yourcompany.com     # the Redmine root, without /issues at the end
 REDMINE_API_KEY=paste-your-40-character-key-here
 REDMINE_READ_ONLY=true                           # safe start: nothing can be changed yet
+REDMINE_PROJECTS=service-desk,customer-portal    # optional: only these projects (empty = all)
 ```
 
 - **"My tickets" means the tickets assigned to the owner of this API key.** Use your own key. For a
@@ -201,6 +209,7 @@ REDMINE_READ_ONLY=true                           # safe start: nothing can be ch
   `.env`. Set it to `false` when you want approved closures to be applied.
 - **Never paste the API key into an AI chat.** The harness reads it from `.env` itself, and the agent
   never needs to see it.
+- **`REDMINE_PROJECTS`** limits everything to your team's projects. See the next section.
 
 **Step 4. Check the connection.**
 
@@ -224,11 +233,50 @@ Special cases:
 |---|---|
 | Your company uses its own HTTPS certificate | `REDMINE_CA_BUNDLE=config/company-ca.pem` (put the PEM file there) |
 | You are behind a proxy | `HTTPS_PROXY=http://proxy.yourcompany.com:8080` |
-| You only want some projects | `REDMINE_PROJECTS=service-desk,customer-portal` |
 | People open Redmine at a different address than this machine uses (Docker, internal DNS) | `REDMINE_PUBLIC_URL=https://redmine.yourcompany.com` |
 | You must log in with a username and password instead of a key | `REDMINE_USERNAME=...` and `REDMINE_PASSWORD=...` |
 
-### 5.3 E-mail / SMTP settings
+### 5.3 Projects and speed (local copy)
+
+The dashboard does **not** ask Redmine for data when you open a page. It keeps a **local copy** of your
+tickets in `data/redmine_cache.db` and builds every page from it, so pages open in milliseconds even
+when Redmine is slow or far away.
+
+How the copy stays up to date:
+
+| When | What is downloaded |
+|---|---|
+| **First start** (once) | Every open ticket, every ticket updated in the last `SYNC_HISTORY_DAYS` days, their time entries, and statuses/projects/users. The dashboard shows a progress bar meanwhile. |
+| **Every `SYNC_INTERVAL_MINUTES`** (default 5) | Only the tickets that changed since the last update, plus today's and yesterday's time entries. Usually a handful of requests. |
+| **Every 12 hours** | Everything again, which also removes deleted or moved tickets. |
+| **In between** | Ticket histories for the first-response SLA, newest tickets first. |
+
+Settings, in **`.env`**:
+
+```ini
+# .env
+REDMINE_PROJECTS=service-desk,customer-portal   # only these projects (ids or identifiers, comma-separated)
+SYNC_INTERVAL_MINUTES=5                         # how often changes are fetched in the background
+SYNC_HISTORY_DAYS=180                           # how far back the copy goes (open tickets: always)
+```
+
+- **`REDMINE_PROJECTS`** is the most important setting for a big Redmine. Only these projects (and
+  their sub-projects) are downloaded and shown, so the first download is much smaller. Use the short
+  name from the project's web address (`/projects/<identifier>`) or its number. Empty means every project
+  you can see.
+- **`SYNC_HISTORY_DAYS`** decides how far back the copy goes. Choosing a longer dashboard period than this
+  shows a note that older closed tickets are missing.
+- The **header** shows when the data was last updated, for example *Updated 2 min ago*. The **↻** button
+  fetches the latest changes right away. If Redmine can't be reached, pages keep working from the copy and
+  a red note says so.
+- From the terminal, `python harness.py sync` updates the copy now and shows progress. Use
+  `python harness.py sync --full` to download everything again, and `python harness.py sync --status` to
+  see what the copy holds.
+- The command line, the daily e-mail and AI tools use the same copy. They fetch the latest changes first
+  if it is more than a minute old.
+- Deleting `data/redmine_cache.db` is safe. It only causes a new first download.
+
+### 5.4 E-mail / SMTP settings
 
 The daily overview e-mail is sent through your mail server (SMTP). Put these in `.env`:
 
@@ -275,7 +323,7 @@ python harness.py daily-overview --send --to you@yourcompany.com   # 2. send one
 2. If the test e-mail arrives, set `EMAIL_ENABLED=true` and start the scheduler
    ([section 9](#9-daily-overview-e-mail-and-scheduling)).
 
-### 5.4 Web dashboard settings
+### 5.5 Web dashboard settings
 
 ```ini
 # .env
@@ -289,7 +337,7 @@ DASHBOARD_PASSWORD=
 When a login is set, the login name is recorded as the reviewer on approvals. For use across the
 network, put the dashboard behind an HTTPS reverse proxy (nginx, IIS, Caddy...).
 
-### 5.5 Team policies (SLA, closure rules, team, reports)
+### 5.6 Team policies (SLA, closure rules, team, reports)
 
 Edit **`config/settings.yaml`**. Every option in the file is commented. The ones teams usually change:
 
@@ -329,7 +377,7 @@ reports:
     weekly-sla: { title: Weekly SLA report, dataset: sla, days: 7, date_field: closed_on, status: closed }
 ```
 
-### 5.6 All settings at a glance
+### 5.7 All settings at a glance
 
 Everything below goes in **`.env`**. Values in `config/settings.yaml` are the team policies shown above.
 
@@ -343,8 +391,10 @@ Everything below goes in **`.env`**. Values in `config/settings.yaml` are the te
 | `REDMINE_PASSWORD` | | Password for `REDMINE_USERNAME` |
 | `REDMINE_CA_BUNDLE` | | Company certificate authority file (PEM) |
 | `REDMINE_VERIFY_SSL` | | `false` disables certificate checks (avoid; use `REDMINE_CA_BUNDLE`) |
-| `REDMINE_PROJECTS` | | Limit to these projects (ids or identifiers, comma-separated) |
+| `REDMINE_PROJECTS` | Recommended for a big Redmine | Only these projects (ids or identifiers, comma-separated; sub-projects included) |
 | `REDMINE_IMPERSONATE` | | Admin keys only: act as another user |
+| `SYNC_INTERVAL_MINUTES` | | How often the local copy fetches changes from Redmine (default `5`) |
+| `SYNC_HISTORY_DAYS` | | How far back the local copy goes (default `180`; open tickets are always included) |
 | `HARNESS_TIMEZONE` | | Timezone for reports, SLA and scheduling (default `Asia/Kolkata`) |
 | `HARNESS_DATA_DIR` | | Where local state is kept (default `data`) |
 | `EMAIL_ENABLED` | | `true` lets the scheduler send the daily e-mail |
@@ -467,8 +517,10 @@ and the command line ([section 13](#13-command-cheat-sheet)). There are two othe
 python harness.py dashboard
 ```
 
-Open http://localhost:8000. Every page has period and project filters, CSV export buttons and a ↻
-refresh button.
+Open http://localhost:8000. Every page has period and project filters and CSV export buttons. The
+header shows when the data was last updated. The **↻** button fetches the latest changes from Redmine
+without waiting for the next background update. Pages are built from the local copy, so they open
+instantly ([section 5.3](#53-projects-and-speed-local-copy)).
 
 | Page | What you see / do |
 |---|---|
@@ -629,6 +681,7 @@ Add `--json` to most commands for machine-readable output.
 |---|---|---|
 | Setup | `python harness.py init` | Create `.env` and `config/settings.yaml` |
 | | `python harness.py check` | Test the configuration and the Redmine connection |
+| | `python harness.py sync` | Update the local copy of Redmine now (`--full`: everything again; `--status`: what it holds) |
 | Tickets | `python harness.py my-tickets` | My open tickets, most urgent first (`--status all`, `--csv file.csv`) |
 | | `python harness.py ticket 1234` | One ticket: details, SLA, history, allowed next statuses |
 | | `python harness.py search --text "vpn" --status all` | Search tickets |
@@ -717,6 +770,9 @@ python harness.py dashboard
   `$env:REDMINE_API_KEY="demo-api-key"` and `$env:REDMINE_READ_ONLY="false"`.
 - **Alternative:** put the same three lines in `.env`.
 - **Demo user:** Karthik Raja.
+- **Simulate a big, slow Redmine:** run `python harness.py mock-server --port 3000 --issues 5000 --latency 0.5`.
+  This gives 5,000 tickets, with every request taking half a second. The first download takes a little
+  while, and then every page still opens instantly.
 
 ---
 
@@ -744,7 +800,7 @@ python harness.py dashboard
 | `Could not reach Redmine` | Wrong URL, VPN or proxy, or the Codex sandbox | Check `REDMINE_URL` and VPN; set `HTTPS_PROXY`; in Codex enable network ([section 7.1](#71-start-your-tool-in-the-project-folder)) |
 | `TLS/SSL verification failed` | Company certificate | Set `REDMINE_CA_BUNDLE` |
 | `Expected JSON ... got text/html` | URL points at a login page or proxy | Use the Redmine root URL |
-| `550 5.7.30 Basic authentication is not supported` | Microsoft 365 SMTP login disabled | Ask your admin to enable Authenticated SMTP for the mailbox, or use a relay ([section 5.3](#53-e-mail--smtp-settings)) |
+| `550 5.7.30 Basic authentication is not supported` | Microsoft 365 SMTP login disabled | Ask your admin to enable Authenticated SMTP for the mailbox, or use a relay ([section 5.4](#54-e-mail--smtp-settings)) |
 | `535 Authentication failed` (Gmail) | Normal password used | Create a Google App Password |
 | E-mail never arrives | `EMAIL_ENABLED=false`, or no recipients | Check `.env`; test with `daily-overview --send --to you@...` |
 | Approve button says *"Enter your name / PIN"* | Missing reviewer details | Fill in the name and PIN fields at the top of the Approvals page |
@@ -752,6 +808,10 @@ python harness.py dashboard
 | Proposal `stale` | The ticket changed after drafting | Draft it again |
 | Your AI tool doesn't see the skills | Started in another folder | Start it in the project folder, or run `skills install`; restart or reload the tool |
 | Dashboard not reachable from other PCs | Bound to this computer only | Set `DASHBOARD_HOST=0.0.0.0` plus a login; open the port in the firewall |
+| *"Preparing your dashboard"* stays for a long time | The first download of a big Redmine | Wait for the progress bar, or set `REDMINE_PROJECTS` to your team's projects and restart. Only the first start is slow |
+| Red note *"Couldn't update from Redmine"* | Redmine unreachable (VPN, proxy, URL) | Pages keep working from the local copy. Fix the connection; it retries by itself |
+| Note *"This period starts before the local copy"* | Period longer than `SYNC_HISTORY_DAYS` | Choose a shorter period, or raise `SYNC_HISTORY_DAYS` (for example `365`) and restart |
+| A ticket I just changed in Redmine isn't shown yet | Next background update not due yet | Click **↻** in the dashboard header, or run `python harness.py sync` |
 
 ---
 
@@ -763,7 +823,7 @@ In the `.env` file in the project folder, on the line `REDMINE_API_KEY=...`. Cre
 
 **Where do I put the SMTP / e-mail settings?**
 Also in `.env`: the `SMTP_*`, `SMTP_SENDER`, `DAILY_RECIPIENTS`, `DAILY_SEND_TIME` and `EMAIL_ENABLED`
-lines ([section 5.3](#53-e-mail--smtp-settings)).
+lines ([section 5.4](#54-e-mail--smtp-settings)).
 
 **Can the AI agent close tickets by itself?**
 No. It can only prepare proposals. A person approves them, and with a PIN once approvers are
@@ -786,6 +846,12 @@ Yes. Run the dashboard on a server with a login, register each approver, and poi
 **What does it change in Redmine?**
 Only approved closures: status, closing note, % done and the custom fields set by the template. Every
 change is audited.
+
+**Why are dashboard numbers up to a few minutes old?**
+Pages are built from the local copy so they open instantly, and the copy fetches changes every
+`SYNC_INTERVAL_MINUTES` (default 5). Click **↻** to update immediately. Closing a ticket through the
+harness shows up at once. Before closing anything, the harness always re-reads the ticket live from
+Redmine.
 
 ---
 

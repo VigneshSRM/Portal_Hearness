@@ -23,6 +23,14 @@ python harness.py overview --days 30
 - Exit codes: `0` ok, `2` error, `4` not installed. For configuration or connection errors, switch to the
   `redmine-setup` skill.
 
+## Data freshness
+
+Numbers come from the harness's local copy of Redmine. Commands fetch the latest changes first when the
+copy is more than a minute old, so results are current. The dashboard updates in the background every
+few minutes and shows "Updated N min ago". If the user says a very recent change is missing, run
+`python harness.py sync` and repeat the command. Periods longer than the copy's history (`SYNC_HISTORY_DAYS`,
+default 180 days) are read live from Redmine and can take longer.
+
 ## Commands
 
 Every command accepts either `--days N` (default 30) or `--from YYYY-MM-DD --to YYYY-MM-DD`, and also

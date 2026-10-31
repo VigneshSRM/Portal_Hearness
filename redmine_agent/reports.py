@@ -286,15 +286,8 @@ def _matches(value: str, wanted: str | None) -> bool:
 
 
 def _issue_rows(spec: ReportSpec, data: DataService, window: Window) -> tuple[list[Issue], Ctx]:
-    status_param = {"open": "open", "closed": "closed"}.get(spec.status, "*")
-    params: dict[str, Any] = {"status_id": status_param, "sort": "id"}
-    if spec.date_field == "open_now":
-        params["status_id"] = "open"
-    else:
-        params[spec.date_field] = window.api_range()
-        if spec.date_field == "closed_on":
-            params["status_id"] = "closed"
-    issues = data.fetch_issues(params, spec.project)
+    issues = data.issues_for_report(date_field=spec.date_field, window=window, status=spec.status,
+                                    project=spec.project)
     if spec.date_field in ("created_on", "updated_on", "closed_on"):
         issues = [i for i in issues if window.contains(getattr(i, spec.date_field))]
     if spec.status == "open":
@@ -388,12 +381,7 @@ def run_report(spec: ReportSpec, data: DataService) -> ReportResult:
         entries = [e for e in entries if window.contains_date(e.spent_on)]
         if spec.assignee:
             entries = [e for e in entries if _matches(e.user, spec.assignee) or str(e.user_id) == str(spec.assignee)]
-        issue_ids = sorted({e.issue_id for e in entries if e.issue_id})
-        issues: dict[int, Issue] = {}
-        for start in range(0, len(issue_ids), 100):
-            chunk = ",".join(str(x) for x in issue_ids[start:start + 100])
-            for issue in data.fetch_issues({"issue_id": chunk, "status_id": "*"}):
-                issues[issue.id] = issue
+        issues: dict[int, Issue] = data.issues_by_ids(e.issue_id for e in entries if e.issue_id)
         ctx = Ctx(tz=data.tz, now=utcnow(), base_url=data.client.web_url,
                   sla=lambda i: data.sla.evaluate(i, utcnow()), issues=issues)
         if spec.tracker:

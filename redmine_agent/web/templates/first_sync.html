@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}Preparing{% endblock %}
+{% block heading %}Preparing your dashboard{% endblock %}
+{% block subheading %}First download from Redmine &mdash; this happens only once{% endblock %}
+{% block filters %}{% endblock %}
+{% block content %}
+{% set pct = (100 * status.done / status.total)|round|int if status.total else 0 %}
+<div class="card first-sync">
+  <h3>Downloading your tickets from Redmine</h3>
+  <p>The dashboard keeps a <strong>local copy</strong> of your tickets, so every page opens instantly.
+    After this first download only the changes are fetched, every {{ '%g' % settings.sync.interval_minutes }} minutes, in the background.</p>
+  <div class="progress"><div class="progress-bar" id="sync-bar" style="width: {{ pct }}%"></div></div>
+  <p id="sync-phase">{{ status.phase or "Starting" }}{% if status.total %} ({{ "{:,}".format(status.done) }} of {{ "{:,}".format(status.total) }}){% endif %}</p>
+  {% if status.error %}<div class="banner bad">The last attempt failed: {{ status.error }}<br>Retrying automatically &mdash; check <code>REDMINE_URL</code>, VPN or proxy if this stays.</div>{% endif %}
+  <p class="muted small">Large Redmine? Download only your team's projects: set <code>REDMINE_PROJECTS=your-project</code>
+    in <code>.env</code> and restart the dashboard. This page refreshes by itself.</p>
+</div>
+{% endblock %}
+{% block scripts %}<script>Harness.waitForFirstSync();</script>{% endblock %}

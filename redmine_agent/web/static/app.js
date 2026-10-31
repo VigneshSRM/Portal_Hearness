@@ -63,9 +63,54 @@
       }
       return data;
     },
+    // ---- local copy of Redmine: status chip, refresh button, first download
+    syncStatus() { return H.api("GET", "/api/sync"); },
+    renderSyncChip(st) {
+      const chip = $("#sync-chip");
+      if (!chip || !st || !st.enabled) return;
+      let text, cls = "sync-chip";
+      const fmt = (n) => Number(n || 0).toLocaleString();
+      if (st.running && !st.ready) { text = st.total ? `Downloading ${fmt(st.done)} / ${fmt(st.total)}` : "Downloading\u2026"; cls += " busy"; }
+      else if (st.running && st.kind !== "histories") { text = "Updating\u2026"; cls += " busy"; }
+      else if (st.error) { text = "Update failed"; cls += " bad"; }
+      else if (st.synced_at && chip.dataset.synced && st.synced_at !== chip.dataset.synced) { text = "New data \u2013 click to show"; cls += " new"; }
+      else if (st.synced_at_local) { text = `Updated ${st.age_text}`; }
+      else { text = "Not updated yet"; }
+      chip.textContent = text;
+      chip.className = cls;
+    },
+    chipClick() {
+      const chip = $("#sync-chip");
+      if (chip && chip.classList.contains("new")) location.reload();
+    },
     async refresh() {
-      try { await H.api("POST", "/api/cache/clear"); } catch (e) { /* ignore */ }
-      location.reload();
+      let before = null;
+      try { before = await H.syncStatus(); } catch (e) { /* ignore */ }
+      let st;
+      try { st = await H.api("POST", "/api/sync"); } catch (e) { H.toast(e.message, true); return; }
+      if (!st.requested) { location.reload(); return; }  // updated right away (no background thread)
+      H.renderSyncChip({ ...st, running: true, kind: "update", ready: true });
+      const since = before ? before.synced_at : null;
+      for (let i = 0; i < 1200; i++) {
+        await new Promise((r) => setTimeout(r, 1500));
+        try { st = await H.syncStatus(); } catch (e) { continue; }
+        const busy = st.running && st.kind !== "histories";
+        if (!busy && st.synced_at && st.synced_at !== since) { location.reload(); return; }
+        if (!busy && st.error && i > 1) { H.renderSyncChip(st); H.toast("Update failed: " + st.error, true); return; }
+        H.renderSyncChip({ ...st, running: true, kind: busy ? st.kind : "update" });
+      }
+    },
+    async waitForFirstSync() {
+      for (;;) {
+        await new Promise((r) => setTimeout(r, 2000));
+        let st;
+        try { st = await H.syncStatus(); } catch (e) { continue; }
+        if (st.ready) { location.reload(); return; }
+        const bar = $("#sync-bar"), phase = $("#sync-phase");
+        if (bar && st.total) bar.style.width = Math.min(100, Math.round((100 * st.done) / st.total)) + "%";
+        if (phase) phase.textContent = (st.phase || "Starting") + (st.total ? ` (${Number(st.done).toLocaleString()} of ${Number(st.total).toLocaleString()})` : "");
+        H.renderSyncChip(st);
+      }
     },
     filterTable(input, tableId) {
       const q = input.value.toLowerCase();
@@ -403,4 +448,8 @@
     },
   };
   window.Harness = H;
+  // Keep "Updated 2 min ago" current and offer new data after a background update (no surprise reloads).
+  if (document.getElementById("sync-chip") && !document.getElementById("sync-bar")) {
+    setInterval(() => { H.syncStatus().then(H.renderSyncChip).catch(() => {}); }, 30000);
+  }
 })();

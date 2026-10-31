@@ -26,7 +26,7 @@ SETTINGS_EXAMPLE = REPO / "config" / "settings.example.yaml"
 # Variables read outside the settings loader (launcher, CLI identity, agent detection).
 EXTRA_ENV = {"REDMINE_AGENT_HOME", "REDMINE_AGENT_CONFIG", "HARNESS_REVIEWER", "HARNESS_AGENT"}
 KNOWN_ENV = set(C._ENV_OVERRIDES) | EXTRA_ENV
-ENV_NAME = re.compile(r"\b(?:REDMINE|SMTP|EMAIL|DAILY|DASHBOARD|HARNESS|LLM)_[A-Z0-9_]+\b")
+ENV_NAME = re.compile(r"\b(?:REDMINE|SMTP|EMAIL|DAILY|DASHBOARD|HARNESS|LLM|SYNC)_[A-Z0-9_]+\b")
 SHELL_BLOCKS = {"bash", "sh", "shell", "console", "powershell", "ps1", "cron"}
 
 

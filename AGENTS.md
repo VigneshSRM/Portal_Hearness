@@ -72,6 +72,10 @@ What you may run, by permission level:
   - the permission rules stay in place.
 - Keep `tests/test_guard.py`, `tests/test_approvals.py` and `tests/test_approvers.py` green. They are the
   safety net.
+- **Dashboard pages must never call Redmine.** Read through `DataService`, which serves the dashboard from
+  the local copy (`local_copy.py`). `tests/test_local_copy.py` checks that page views make zero Redmine
+  requests and stay under 200 ms. Single tickets for closures are the exception: they are read live on
+  purpose.
 
 ## Project map
 
@@ -83,7 +87,8 @@ redmine_agent/
   guard.py             WriteGuard + Approval (permission enforcement)
   approvers.py         registered approvers with salted-hash PINs
   models.py            Issue / Journal / TimeEntry views over API JSON
-  data.py              cached read layer + Snapshot (issues, time entries, journals)
+  data.py              read layer + Snapshot (issues, time entries, journals): local copy or live
+  local_copy.py        SQLite copy of Redmine + background updates (why pages open in milliseconds)
   sla.py               business-hours calendar + SLA engine (response & resolution)
   analytics.py         overview / sla / team / performance / time / my-tickets numbers
   reports.py           customisable reports -> CSV (formula-injection safe)

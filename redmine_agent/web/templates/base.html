@@ -40,7 +40,7 @@
       <form class="filters" method="get">
         <label>Period
           <select name="days" onchange="this.form.from.value='';this.form.to.value='';this.form.submit()">
-            {% for d in [7, 14, 30, 60, 90, 180, 365] %}
+            {% for d in periods %}
             <option value="{{ d }}" {% if filters.days == d and not filters['from'] %}selected{% endif %}>Last {{ d }} days</option>
             {% endfor %}
           </select>
@@ -56,11 +56,23 @@
           </select>
         </label>
         <button class="btn" type="submit">Apply</button>
-        <button class="btn ghost" type="button" title="Reload data from Redmine" onclick="Harness.refresh()">&#8635;</button>
+        <button class="btn ghost" type="button" title="Fetch the latest changes from Redmine now" onclick="Harness.refresh()">&#8635;</button>
       </form>
       {% endblock %}
+      {% if sync and sync.enabled %}
+      <span id="sync-chip" class="sync-chip{% if sync.running and sync.kind != 'histories' %} busy{% elif sync.error %} bad{% endif %}"
+            data-synced="{{ sync.synced_at or '' }}" onclick="Harness.chipClick()"
+            title="Pages are built from a local copy of Redmine that updates every {{ '%g' % sync.interval_minutes }} minutes{% if sync.synced_at_local %} (last update {{ sync.synced_at_local }}){% endif %}. Click &#8635; to update now.">
+        {% if sync.running and not sync.ready %}Downloading&hellip;{% elif sync.running and sync.kind != 'histories' %}Updating&hellip;{% elif sync.error %}Update failed{% elif sync.synced_at_local %}Updated {{ sync.age_text }}{% else %}Not updated yet{% endif %}
+      </span>
+      {% endif %}
     </header>
     <section class="content">
+      {% if sync and sync.error and sync.ready %}
+      <div class="banner bad">Couldn't update from Redmine ({{ sync.error_at_local }}): {{ sync.error }}<br>
+        Showing the local copy from {{ sync.synced_at_local or 'earlier' }}. It retries automatically &mdash; check <code>REDMINE_URL</code>, VPN or proxy if this stays.</div>
+      {% endif %}
+      {% if notice %}<div class="banner warn">{{ notice }}</div>{% endif %}
       {% block content %}{% endblock %}
     </section>
   </main>

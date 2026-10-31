@@ -27,6 +27,14 @@ class TemplateError(HarnessError):
     """A closure template is invalid or cannot be rendered."""
 
 
+class LocalCopyNotReady(HarnessError):
+    """The first download into the local copy is still running (dashboard shows progress)."""
+
+    def __init__(self, status: dict | None = None) -> None:
+        self.status = status or {}
+        super().__init__("The first download from Redmine is still running. The dashboard fills in automatically.")
+
+
 class RedmineError(HarnessError):
     """An error returned by (or while talking to) the Redmine REST API."""
 

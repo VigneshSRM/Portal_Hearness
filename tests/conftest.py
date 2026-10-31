@@ -43,7 +43,7 @@ def settings(tmp_path, mock):
 def harness(settings):
     h = Harness.create(settings)
     yield h
-    h.store.close()
+    h.close()
 
 
 @pytest.fixture()

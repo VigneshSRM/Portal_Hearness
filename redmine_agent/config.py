@@ -166,6 +166,24 @@ class DashboardConfig:
 
 
 @dataclass
+class SyncConfig:
+    """Local copy of Redmine data (data/redmine_cache.db) that keeps the dashboard fast.
+
+    Pages are built from the local copy, so they never wait for Redmine. A background
+    thread fetches only the tickets that changed since the last update.
+    """
+
+    enabled: bool = True
+    interval_minutes: float = 5.0        # background update: tickets changed since the last update
+    history_days: int = 180              # every open ticket + tickets updated in the last N days
+    full_sync_hours: float = 12.0        # download everything again this often (drops deleted/moved tickets)
+    max_age_seconds: int = 60            # command line / e-mail / AI tools: update first if older than this
+    workers: int = 4                     # parallel requests during a full download
+    journal_batch: int = 100             # ticket histories (first-response SLA) per background round
+    time_entries_recent_days: int = 2    # today + yesterday re-read on every update (older: full download)
+
+
+@dataclass
 class LLMConfig:
     base_url: str = "https://api.openai.com/v1"
     api_key: str = ""
@@ -192,6 +210,7 @@ class Settings:
     closure: ClosureConfig = field(default_factory=ClosureConfig)
     team: TeamConfig = field(default_factory=TeamConfig)
     dashboard: DashboardConfig = field(default_factory=DashboardConfig)
+    sync: SyncConfig = field(default_factory=SyncConfig)
     llm: LLMConfig = field(default_factory=LLMConfig)
     reports: dict[str, Any] = field(default_factory=dict)
     config_path: str = ""
@@ -344,6 +363,8 @@ _ENV_OVERRIDES: dict[str, tuple[str, ...]] = {
     "DASHBOARD_USERNAME": ("dashboard", "username"),
     "DASHBOARD_PASSWORD": ("dashboard", "password"),
     "DASHBOARD_PUBLIC_URL": ("dashboard", "public_url"),
+    "SYNC_INTERVAL_MINUTES": ("sync", "interval_minutes"),
+    "SYNC_HISTORY_DAYS": ("sync", "history_days"),
     "LLM_BASE_URL": ("llm", "base_url"),
     "LLM_API_KEY": ("llm", "api_key"),
     "LLM_MODEL": ("llm", "model"),
@@ -461,6 +482,14 @@ def validate_settings(settings: Settings) -> None:
     if not 0 < settings.sla.at_risk_ratio <= 1:
         raise ConfigError("sla.at_risk_ratio must be between 0 and 1")
     settings.redmine.page_size = max(1, min(int(settings.redmine.page_size), 100))
+    sync = settings.sync
+    if sync.interval_minutes <= 0 or sync.history_days < 1 or sync.full_sync_hours <= 0:
+        raise ConfigError("sync.interval_minutes, sync.history_days and sync.full_sync_hours must be positive")
+    sync.interval_minutes = max(0.25, float(sync.interval_minutes))
+    sync.workers = max(1, min(int(sync.workers), 16))
+    sync.journal_batch = max(1, int(sync.journal_batch))
+    sync.time_entries_recent_days = max(1, int(sync.time_entries_recent_days))
+    sync.max_age_seconds = max(0, int(sync.max_age_seconds))
 
 
 def mask_secret(value: str) -> str:

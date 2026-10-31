@@ -11,6 +11,7 @@ from .closure_templates import TemplateStore
 from .config import Settings, load_settings
 from .data import DataService
 from .guard import WriteGuard
+from .local_copy import LocalCopy
 from .store import HarnessStore
 
 
@@ -33,7 +34,8 @@ class Harness:
             client = RedmineClient.from_settings(settings, guard=guard)
         else:
             client.guard = guard
-        data = DataService(client, settings, store)
+        local = LocalCopy(settings.data_path / "redmine_cache.db", settings, client) if settings.sync.enabled else None
+        data = DataService(client, settings, store, local)
         seed = settings.closure.seed_templates_file
         templates = TemplateStore(
             settings.path(settings.closure.templates_file),
@@ -49,3 +51,8 @@ class Harness:
     @property
     def read_only(self) -> bool:
         return self.client.guard.read_only
+
+    def close(self) -> None:
+        self.store.close()
+        if self.data.local is not None:
+            self.data.local.close()
