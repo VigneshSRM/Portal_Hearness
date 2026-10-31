@@ -47,6 +47,8 @@ Go step by step and say what you are about to do before each step that writes fi
    - `REDMINE_URL` - the Redmine root, e.g. `https://redmine.example.com`
    - `REDMINE_API_KEY` - Redmine → *My account* → *API access key* → *Show*
    - `REDMINE_READ_ONLY=true` is a safe start; `false` lets approved closures apply.
+   - `REDMINE_PROJECTS` - recommended for a big Redmine: only these projects (ids or identifiers,
+     comma-separated, sub-projects included) are downloaded and shown. Empty = every project.
 
    Do **not** ask for the API key in this chat - it would be sent to the AI provider. If the user pastes
    it anyway, write it only into `.env` and never repeat it.
@@ -70,6 +72,17 @@ Go step by step and say what you are about to do before each step that writes fi
 process if your tool supports that; otherwise ask the user to run it in another terminal. People review
 and approve ticket closures on its **Approvals** page.
 
+## Local copy (why pages are fast)
+
+Pages, reports and commands read a local copy of Redmine (`data/redmine_cache.db`). The first start
+downloads it once (the dashboard shows a progress bar). After that, only changes are fetched every
+`SYNC_INTERVAL_MINUTES` (default 5), and everything again every 12 hours.
+
+- `python harness.py sync` - update now and show progress (`--full`: download everything again).
+- `python harness.py sync --status --json` - what the copy holds and when it was last updated (no network).
+- `SYNC_HISTORY_DAYS` (default 180) - how far back the copy goes; open tickets are always included.
+- Deleting `data/redmine_cache.db` is safe: it only causes a new first download.
+
 ## Try it without a real Redmine
 
 `python harness.py mock-server --port 3000` starts a demo Redmine (keeps running). Then set
@@ -88,6 +101,8 @@ Karthik Raja; the data is realistic but fake.
 | `TLS/SSL verification failed` | Company certificate authority | `redmine.ca_bundle: config/company-ca.pem` in `config/settings.yaml` |
 | `Expected JSON ... got text/html` | URL points at a login page or proxy | Use the Redmine root URL |
 | `412` | `REDMINE_IMPERSONATE` login unknown | Fix or remove it |
+| Dashboard stuck on "Preparing your dashboard" | First download of a big Redmine | Set `REDMINE_PROJECTS` to the team's projects and restart; check progress with `python harness.py sync --status` |
+| Dashboard shows "Couldn't update from Redmine" | Redmine unreachable; pages still work from the copy | Fix URL, VPN or proxy; it retries by itself |
 
 ## Notes per AI tool
 

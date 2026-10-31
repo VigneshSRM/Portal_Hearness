@@ -13,7 +13,10 @@
    │  team/perf/                  e-mail)                    execute→verify)  │
    │  time)                                                                   │
    │        ▲              ▲                                   │               │
-   │        └──── data.py (TTL cache, Snapshot) ◄── sla.py      │               │
+   │        └──── data.py (Snapshot) ◄── sla.py                 │               │
+   │                    │   ▲                                   │               │
+   │                    │   └── local_copy.py (SQLite copy of   │               │
+   │                    │       Redmine + BackgroundSync thread)│               │
    │                    │                                       ▼               │
    │                    │                      closure_templates.py (Jinja2    │
    │                    │                      sandbox, YAML store)            │
@@ -35,10 +38,31 @@
   - every open ticket, plus the tickets created or closed in the window;
   - the window's time entries;
   - optional journals, used to measure first response.
-
-  The snapshot is cached for `dashboard.cache_ttl_seconds`. Journals are fetched in parallel and
-  stored in SQLite under each ticket's `updated_on`, so they are only downloaded again after the
-  ticket changes.
+- **Local copy - pages never wait for Redmine** (`local_copy.py`). Snapshots are built from a local
+  SQLite copy (`data/redmine_cache.db`), not from live API calls.
+  - *First start*: one full download, with pages fetched in parallel (`sync.workers`). It covers every
+    open ticket, every ticket updated in the last `sync.history_days`, their time entries, and reference
+    data.
+  - *Every `sync.interval_minutes`*: an incremental update with `updated_on>=<last change seen - 5 min>`,
+    plus today's and yesterday's time entries. Only rows that really changed are written.
+  - *Every `sync.full_sync_hours`*: a full download, which drops deleted or moved tickets.
+  - *Ticket histories* (journals) are read in background batches, newest tickets first, and stored
+    under the ticket's `updated_on`.
+  - *Paging that can't skip tickets*: result sets that can only grow are sorted by id; the one that can
+    shrink (old open tickets) is read page by page, stepping back when `total_count` drops.
+  - *Several processes share the file*: every write gets a revision number, and each process loads only
+    newer rows (`load()`), including deletions (the `removed` table).
+  - *The dashboard* runs `BackgroundSync` in a daemon thread and sets `DataService.wait_for_sync = False`,
+    so a request never calls Redmine. After each update, the default pages are pre-computed into a
+    `ResultCache` keyed by data version. A page view is a dictionary lookup plus template rendering,
+    typically 2-20 ms.
+  - *The CLI, e-mail and AI tools* run a quick incremental update when the copy is older than
+    `sync.max_age_seconds`. Windows older than the copy's history are read live, so they stay exact.
+  - *Single tickets* for drafting or approving closures are always read live (`DataService.issue`).
+    After an approved closure, the verified ticket is written into the copy straight away.
+  - `sync.enabled: false` switches back to live reads. They are cached for `dashboard.cache_ttl_seconds`
+    by a `TTLCache` that counts expiry from when a load *finished*, and shares one load between
+    concurrent callers.
 - **SLA engine.** It uses a business-hours calendar (workdays, hours, holidays, timezone).
   - The *resolution* SLA runs from `created_on` to `closed_on`, or to now if the ticket is open.
   - The *first-response* SLA ends at the first journal by someone other than the author that adds

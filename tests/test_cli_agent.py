@@ -23,7 +23,11 @@ def run_json(capsys, *argv) -> tuple[int, object]:
 def test_check_json(cli_env, capsys):
     code, data = run_json(capsys, "check", "--json")
     assert code == 0 and data["ok"] is True
-    assert data["checks"][0] == {"name": "current user", "ok": True, "detail": "karthik (id 2, admin=False)"}
+    first = data["checks"][0]
+    assert {k: first[k] for k in ("name", "ok", "detail")} == {"name": "current user", "ok": True,
+                                                              "detail": "karthik (id 2, admin=False)"}
+    assert isinstance(first["ms"], int), "response time in milliseconds"
+    assert "local_copy" in data["config"]
     assert "demo-api-key" not in json.dumps(data)  # key is masked
 
 

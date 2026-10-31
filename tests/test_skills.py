@@ -20,7 +20,7 @@ SKILL_FILES = sorted(S.CANONICAL_DIR.rglob("*.md"))
 SKILL_MDS = sorted(S.CANONICAL_DIR.glob("*/SKILL.md"))
 HUMAN_ONLY = ["close approve", "close review", "close reject", "close execute", "templates delete",
               "approver add", "approver remove", "approver change-pin"]
-READ_ONLY = {"--version", "check", "my-tickets", "ticket", "search", "api", "overview", "sla", "team",
+READ_ONLY = {"--version", "check", "sync", "my-tickets", "ticket", "search", "api", "overview", "sla", "team",
              "performance", "time", "export", "close candidates", "close list", "close show", "templates list",
              "templates show", "templates preview", "templates validate", "approver list", "audit",
              "skills list", "skills validate"}

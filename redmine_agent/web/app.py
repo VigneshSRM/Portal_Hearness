@@ -10,30 +10,42 @@ Security
   CORS preflight, which this app never grants - this blocks CSRF.
 * Approving is always an explicit click by a named person; the server re-checks every
   rule (human reviewer, digest, staleness) before anything is written to Redmine.
+
+Speed
+-----
+Pages are built from the local copy of Redmine (``data/redmine_cache.db``), never from live
+Redmine calls. A background thread (:class:`~redmine_agent.local_copy.BackgroundSync`) fetches
+only what changed every ``sync.interval_minutes`` and then pre-computes the default pages, so a
+page view is a dictionary lookup plus template rendering.
 """
 
 from __future__ import annotations
 
 import base64
 import binascii
+import hashlib
 import logging
 import secrets
 import threading
+from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.concurrency import run_in_threadpool
 
 from .. import __version__, analytics
 from ..approvals import describe_changes
+from ..branding import EXTENSIONS, MAX_LOGO_BYTES, BrandingError, BrandingStore
 from ..closure_templates import ClosureTemplate, render_note, validate_template
 from ..config import Settings, load_settings
 from ..errors import (
     ConfigError,
     HarnessError,
+    LocalCopyNotReady,
     NotFoundError,
     PermissionDenied,
     RedmineConnectionError,
@@ -43,6 +55,7 @@ from ..errors import (
     WorkflowError,
 )
 from ..guard import is_human_actor
+from ..local_copy import BackgroundSync
 from ..reports import ReportSpec, available_columns, report_filename, run_report
 from ..timeutils import fmt_dt, fmt_hours, utcnow
 
@@ -50,6 +63,7 @@ log = logging.getLogger(__name__)
 HERE = Path(__file__).parent
 WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
+# Top navigation bar: the main pages, then a "More" menu (on small screens everything is in one menu).
 NAV = [
     ("/", "overview", "Overview"),
     ("/sla", "sla", "SLA"),
@@ -57,27 +71,140 @@ NAV = [
     ("/performance", "performance", "Performance"),
     ("/time", "time", "Time spent"),
     ("/my-tickets", "my", "My tickets"),
-    ("/reports", "reports", "Reports & CSV"),
-    ("/templates", "templates", "Closure templates"),
+    ("/reports", "reports", "Reports"),
     ("/approvals", "approvals", "Approvals"),
-    ("/audit", "audit", "Audit log"),
 ]
+NAV_MORE = [
+    ("/templates", "templates", "Closure templates"),
+    ("/audit", "audit", "Audit log"),
+    ("/branding", "branding", "Name & logo"),
+]
+MORE_KEYS = {key for _, key, _ in NAV_MORE}
 
 
 def _pct(value: Any) -> str:
     return "-" if value is None else f"{value:g}%"
 
 
-def create_app(settings: Settings | None = None, *, harness: Any = None) -> FastAPI:
+PERIODS = (7, 14, 30, 60, 90, 180, 365)  # the period menu; every one is pre-computed after each update
+
+ANALYTICS: dict[str, Callable[[Any], dict[str, Any]]] = {
+    "overview": analytics.overview,
+    "sla": analytics.sla_report,
+    "team": analytics.team_report,
+    "performance": analytics.performance_report,
+    "time": analytics.time_report,
+}
+
+
+def _ago(seconds: float | None) -> str:
+    if seconds is None:
+        return ""
+    if seconds < 60:
+        return "just now"
+    if seconds < 3600:
+        return f"{int(seconds // 60)} min ago"
+    if seconds < 86400:
+        return f"{int(seconds // 3600)} h ago"
+    return f"{int(seconds // 86400)} days ago"
+
+
+def _asset_version(static_dir: Path) -> str:
+    """Short fingerprint of the stylesheet and script used in their ``?v=`` links.
+
+    The package version stays the same between releases, so browsers could keep showing an old
+    stylesheet with new page markup. Hashing the file contents changes the link after every UI change.
+    """
+    digest = hashlib.sha256(__version__.encode())
+    for name in ("app.css", "app.js"):
+        try:
+            digest.update((static_dir / name).read_bytes())
+        except OSError:
+            pass
+    return digest.hexdigest()[:10]
+
+
+def _version_order(key: tuple) -> tuple[int, ...]:
+    try:
+        return tuple(int(x) for x in str(key[-1]).split(":"))
+    except ValueError:
+        return (0,)
+
+
+class ResultCache:
+    """Computed page data per (page, filters, data version).
+
+    Only the newest data version is kept; concurrent requests for the same key share one
+    computation. Pre-filled after every background update, so default pages never compute.
+    """
+
+    def __init__(self, max_entries: int = 300) -> None:
+        self.max_entries = max_entries
+        self._data: dict[tuple, Any] = {}
+        self._gates: dict[tuple, threading.Lock] = {}
+        self._lock = threading.Lock()
+        self._newest: tuple[int, ...] = (0,)
+
+    def get(self, key: tuple, compute: Callable[[], Any]) -> Any:
+        with self._lock:
+            if key in self._data:
+                return self._data[key]
+            gate = self._gates.setdefault(key, threading.Lock())
+        with gate:
+            with self._lock:
+                if key in self._data:
+                    return self._data[key]
+            value = compute()
+            with self._lock:
+                order = _version_order(key)
+                if order >= self._newest:
+                    if order > self._newest:  # data changed: forget results computed from older data
+                        self._data = {k: v for k, v in self._data.items() if _version_order(k) >= order}
+                        self._newest = order
+                    if len(self._data) >= self.max_entries:
+                        self._data.pop(next(iter(self._data)))
+                    self._data[key] = value
+                self._gates.pop(key, None)
+            return value
+
+    def clear(self) -> None:
+        with self._lock:
+            self._data.clear()
+
+
+def create_app(settings: Settings | None = None, *, harness: Any = None,
+               background_sync: bool | None = None) -> FastAPI:
+    """Build the dashboard app.
+
+    ``background_sync`` (default: ``sync.enabled``) starts the background update thread when the
+    server starts. Without it (e.g. in tests) data is refreshed on demand before a page is built.
+    """
     settings = settings or load_settings()
-    app = FastAPI(title="Redmine Agent Dashboard", version=__version__, docs_url="/api/docs", redoc_url=None)
+    run_background = settings.sync.enabled and (background_sync is None or background_sync)
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        if run_background:
+            await run_in_threadpool(start_background)
+        try:
+            yield
+        finally:
+            worker = state.get("sync")
+            if worker is not None:
+                worker.stop()
+
+    app = FastAPI(title="Redmine Agent Dashboard", version=__version__, docs_url="/api/docs", redoc_url=None,
+                  lifespan=lifespan)
     templates = Jinja2Templates(directory=str(HERE / "templates"))
     templates.env.filters["hours"] = fmt_hours
     templates.env.filters["pct"] = _pct
     app.mount("/static", StaticFiles(directory=str(HERE / "static")), name="static")
+    asset_version = _asset_version(HERE / "static")
 
-    state: dict[str, Any] = {"harness": harness, "error": None}
+    state: dict[str, Any] = {"harness": harness, "error": None, "sync": None, "audit_store": None}
     lock = threading.Lock()
+    results = ResultCache()
+    branding = BrandingStore(settings)  # works even before Redmine is configured
 
     def get_harness():
         if state["harness"] is None:
@@ -87,6 +214,97 @@ def create_app(settings: Settings | None = None, *, harness: Any = None) -> Fast
 
                     state["harness"] = Harness.create(settings)
         return state["harness"]
+
+    # ------------------------------------------------------------------ local copy & background updates
+    def start_background() -> None:
+        try:
+            h = get_harness()
+        except HarnessError as exc:
+            log.warning("Background updates not started: %s", exc)
+            return
+        if h.data.local is None:
+            return
+        h.data.wait_for_sync = False  # from now on pages never wait for Redmine
+        worker = BackgroundSync(h.data.local, on_update=warm)
+        state["sync"] = worker
+        worker.start()
+
+    def default_filters() -> dict[str, Any]:
+        return {"days": settings.dashboard.default_days, "from": "", "to": "", "project": ""}
+
+    def data_version(h: Any) -> str | None:
+        """Cache key for computed pages - only when a background thread keeps the copy fresh."""
+        local = h.data.local
+        if local is None or h.data.wait_for_sync or not local.ready:
+            return None
+        return local.version
+
+    def snapshot_for(h: Any, f: dict[str, Any]):
+        window = h.data.window(f["days"], f["from"] or None, f["to"] or None)
+        return h.data.snapshot(window, f["project"] or None)
+
+    def computed(kind: str, f: dict[str, Any]) -> dict[str, Any]:
+        h = get_harness()
+        version = data_version(h)
+        if version is None:
+            return ANALYTICS[kind](snapshot_for(h, f))
+        key = (kind, f["days"], f["from"], f["to"], f["project"], version)
+        return results.get(key, lambda: ANALYTICS[kind](snapshot_for(h, f)))
+
+    def my_computed(status: str, project: str) -> dict[str, Any]:
+        h = get_harness()
+
+        def compute() -> dict[str, Any]:
+            return analytics.my_tickets(h.data.my_issues(status, project or None), h.data.sla, tz=settings.tz,
+                                        base_url=h.client.web_url, now=utcnow())
+
+        version = data_version(h)
+        return compute() if version is None else results.get(("my", status, project or "", version), compute)
+
+    def warm() -> None:
+        """Pre-compute every page for every period in the menu from the fresh copy (background thread).
+
+        Pages of one period share a snapshot (and its SLA results), so each period costs about one
+        computation. The default period goes first; project filters are computed on first view.
+        """
+        h = get_harness()
+        if data_version(h) is None:
+            return
+        default = settings.dashboard.default_days
+        for days in [default] + [d for d in PERIODS if d != default]:
+            f = {**default_filters(), "days": days}
+            for kind in ANALYTICS:
+                computed(kind, f)
+            if days == default:
+                my_computed("open", "")
+
+    def sync_view(h: Any) -> dict[str, Any]:
+        local = h.data.local
+        if local is None:
+            return {"enabled": False}
+        worker = state.get("sync")
+        st = local.status()
+        st.update({"enabled": True, "background": bool(worker and worker.alive), "age_text": _ago(st["age_seconds"])})
+        return st
+
+    def data_notice(request: Request, h: Any) -> str:
+        local = h.data.local
+        if local is None or h.data.wait_for_sync or not local.ready:
+            return ""
+        if local.view.meta.get("shape") != local.shape_key():
+            return ("Project or history settings changed - a full download is running in the background. "
+                    "Numbers may be incomplete for a few minutes.")
+        start = local.coverage_start
+        f = filters(request)
+        try:
+            window = h.data.window(f["days"], f["from"] or None, f["to"] or None)
+        except (HarnessError, ValueError):
+            return ""
+        if start and window.start < start:
+            return (f"This period starts before the local copy, which holds the last {settings.sync.history_days} "
+                    f"days (from {start:%d %b %Y}). Tickets closed before then are not included. To include "
+                    f"them, set SYNC_HISTORY_DAYS in .env (for example 365) and restart the dashboard.")
+        return ""
 
     # ------------------------------------------------------------------ middleware
     @app.middleware("http")
@@ -128,7 +346,7 @@ def create_app(settings: Settings | None = None, *, harness: Any = None) -> Fast
             return 403
         if isinstance(exc, StaleProposalError):
             return 409
-        if isinstance(exc, (WorkflowError, TemplateError)):
+        if isinstance(exc, (WorkflowError, TemplateError, BrandingError)):
             return 422
         if isinstance(exc, NotFoundError):
             return 404
@@ -141,6 +359,13 @@ def create_app(settings: Settings | None = None, *, harness: Any = None) -> Fast
     @app.exception_handler(HarnessError)
     async def harness_error(request: Request, exc: HarnessError):
         path = request.url.path
+        if isinstance(exc, LocalCopyNotReady):  # first download still running: show progress, not an error
+            if path.startswith(("/api/", "/export/")):
+                return JSONResponse({"error": str(exc), "sync": exc.status}, status_code=503,
+                                    headers={"Retry-After": "5"})
+            active = next((key for href, key, _ in NAV + NAV_MORE if href == path), "")
+            return templates.TemplateResponse(request, "first_sync.html", {
+                **base_context(request, active, safe=True), "status": exc.status})
         if path.startswith(("/api/", "/export/")):
             body: dict[str, Any] = {"error": str(exc)}
             if isinstance(exc, RedmineError) and exc.errors:
@@ -162,9 +387,11 @@ def create_app(settings: Settings | None = None, *, harness: Any = None) -> Fast
 
     def base_context(request: Request, active: str, *, safe: bool = False) -> dict[str, Any]:
         ctx: dict[str, Any] = {
-            "nav": NAV, "active": active, "filters": filters(request), "version": __version__,
+            "nav": NAV, "nav_more": NAV_MORE, "more_keys": MORE_KEYS, "brand": branding.current(),
+            "active": active, "filters": filters(request), "version": __version__, "asset_version": asset_version,
             "settings": settings, "read_only": settings.redmine.read_only, "projects": [], "pending_count": 0,
             "me": {}, "redmine_url": settings.redmine.public_url or settings.redmine.url, "auth_user": getattr(request.state, "user", ""),
+            "sync": {}, "notice": "", "periods": PERIODS,
         }
         try:
             h = get_harness()
@@ -172,16 +399,12 @@ def create_app(settings: Settings | None = None, *, harness: Any = None) -> Fast
             ctx["pending_count"] = h.store.count_proposals("pending")
             ctx["projects"] = h.data.projects()
             ctx["me"] = h.data.current_user()
+            ctx["sync"] = sync_view(h)
+            ctx["notice"] = data_notice(request, h)
         except HarnessError:
             if not safe:
                 raise
         return ctx
-
-    def snapshot(request: Request):
-        f = filters(request)
-        h = get_harness()
-        window = h.data.window(f["days"], f["from"] or None, f["to"] or None)
-        return h.data.snapshot(window, f["project"] or None)
 
     def page(request: Request, name: str, active: str, **extra: Any) -> HTMLResponse:
         return templates.TemplateResponse(request, name, {**base_context(request, active), **extra})
@@ -193,30 +416,26 @@ def create_app(settings: Settings | None = None, *, harness: Any = None) -> Fast
 
     @app.get("/", response_class=HTMLResponse)
     def overview_page(request: Request):
-        return page(request, "overview.html", "overview", data=analytics.overview(snapshot(request)))
+        return page(request, "overview.html", "overview", data=computed("overview", filters(request)))
 
     @app.get("/sla", response_class=HTMLResponse)
     def sla_page(request: Request):
-        return page(request, "sla.html", "sla", data=analytics.sla_report(snapshot(request)))
+        return page(request, "sla.html", "sla", data=computed("sla", filters(request)))
 
     @app.get("/team", response_class=HTMLResponse)
     def team_page(request: Request):
-        return page(request, "team.html", "team", data=analytics.team_report(snapshot(request)))
+        return page(request, "team.html", "team", data=computed("team", filters(request)))
 
     @app.get("/performance", response_class=HTMLResponse)
     def performance_page(request: Request):
-        return page(request, "performance.html", "performance", data=analytics.performance_report(snapshot(request)))
+        return page(request, "performance.html", "performance", data=computed("performance", filters(request)))
 
     @app.get("/time", response_class=HTMLResponse)
     def time_page(request: Request):
-        return page(request, "time.html", "time", data=analytics.time_report(snapshot(request)))
+        return page(request, "time.html", "time", data=computed("time", filters(request)))
 
     def my_data(request: Request) -> dict[str, Any]:
-        h = get_harness()
-        status = request.query_params.get("status", "open")
-        project = request.query_params.get("project") or None
-        return analytics.my_tickets(h.data.my_issues(status, project), h.data.sla, tz=settings.tz,
-                                    base_url=h.client.web_url, now=utcnow())
+        return my_computed(request.query_params.get("status", "open"), request.query_params.get("project") or "")
 
     @app.get("/my-tickets", response_class=HTMLResponse)
     def my_page(request: Request):
@@ -260,26 +479,100 @@ def create_app(settings: Settings | None = None, *, harness: Any = None) -> Fast
         _, html, _ = render_daily(build_daily_context(get_harness()), settings.email.subject_prefix)
         return HTMLResponse(html)
 
+    # ------------------------------------------------------------------ branding: name & logo in the top bar
+    def audit(actor: str, action: str, details: dict[str, Any]) -> None:
+        try:
+            store = get_harness().store
+        except HarnessError:  # Redmine not configured yet - branding still works and is still audited
+            if state["audit_store"] is None:
+                from ..store import HarnessStore
+
+                state["audit_store"] = HarnessStore(settings.data_path / "harness.db")
+            store = state["audit_store"]
+        store.audit(actor=actor, action=action, target="dashboard", details=details)
+
+    @app.get("/branding", response_class=HTMLResponse)
+    def branding_page(request: Request):
+        return templates.TemplateResponse(request, "branding.html", {
+            **base_context(request, "branding", safe=True), "max_logo_bytes": MAX_LOGO_BYTES,
+            "max_logo_label": f"{MAX_LOGO_BYTES / 1_000_000:g} MB",
+            "settings_logo": settings.dashboard.logo})
+
+    @app.get("/branding/logo")
+    def branding_logo(request: Request):
+        logo = branding.logo()
+        if logo is None:
+            return Response(status_code=404)
+        data, kind = logo
+        return Response(data, media_type=kind, headers={
+            # the URL carries a content hash (?v=...), so the browser may keep it for a long time
+            "Cache-Control": "private, max-age=31536000, immutable" if request.query_params.get("v") else "no-cache",
+            # an SVG opened directly must not be able to run anything
+            "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox",
+            "Content-Disposition": f'inline; filename="logo{EXTENSIONS[kind]}"',
+        })
+
+    @app.get("/api/branding")
+    def api_branding():
+        return branding.current().to_dict()
+
+    @app.put("/api/branding")
+    async def api_branding_update(request: Request):
+        actor = reviewer(request)
+        body = await request.json()
+        brand = branding.update(name=body.get("name"), subtitle=body.get("subtitle"), actor=actor)
+        audit(actor, "branding.updated", {"name": brand.name, "subtitle": brand.subtitle})
+        return brand.to_dict()
+
+    @app.put("/api/branding/logo")
+    async def api_branding_logo(request: Request):
+        actor = reviewer(request)
+        chunks: list[bytes] = []
+        size = 0
+        async for chunk in request.stream():  # stop reading as soon as it is too large
+            size += len(chunk)
+            if size > MAX_LOGO_BYTES:
+                raise BrandingError("The logo is too large. Please use an image up to 1 MB.")
+            chunks.append(chunk)
+        data = b"".join(chunks)
+        brand = branding.set_logo(data, actor=actor)
+        audit(actor, "branding.logo_uploaded", {"bytes": len(data), "type": (branding.logo() or (b"", ""))[1]})
+        return brand.to_dict()
+
+    @app.delete("/api/branding/logo")
+    def api_branding_logo_remove(request: Request):
+        actor = reviewer(request)
+        brand = branding.remove_logo(actor=actor)
+        audit(actor, "branding.logo_removed", {})
+        return brand.to_dict()
+
+    @app.post("/api/branding/reset")
+    def api_branding_reset(request: Request):
+        actor = reviewer(request)
+        brand = branding.reset()
+        audit(actor, "branding.reset", {"name": brand.name})
+        return brand.to_dict()
+
     # ------------------------------------------------------------------ JSON API: analytics
     @app.get("/api/overview")
     def api_overview(request: Request):
-        return analytics.overview(snapshot(request))
+        return computed("overview", filters(request))
 
     @app.get("/api/sla")
     def api_sla(request: Request):
-        return analytics.sla_report(snapshot(request))
+        return computed("sla", filters(request))
 
     @app.get("/api/team")
     def api_team(request: Request):
-        return analytics.team_report(snapshot(request))
+        return computed("team", filters(request))
 
     @app.get("/api/performance")
     def api_performance(request: Request):
-        return analytics.performance_report(snapshot(request))
+        return computed("performance", filters(request))
 
     @app.get("/api/time")
     def api_time(request: Request):
-        return analytics.time_report(snapshot(request))
+        return computed("time", filters(request))
 
     @app.get("/api/my-tickets")
     def api_my(request: Request):
@@ -287,8 +580,34 @@ def create_app(settings: Settings | None = None, *, harness: Any = None) -> Fast
 
     @app.post("/api/cache/clear")
     def api_clear_cache():
-        get_harness().data.clear_cache()
+        h = get_harness()
+        h.data.clear_cache()
+        results.clear()
+        worker = state.get("sync")
+        if worker is not None and worker.alive:
+            worker.request()
         return {"ok": True}
+
+    # ------------------------------------------------------------------ JSON API: local copy
+    @app.get("/api/sync")
+    def api_sync_status():
+        return sync_view(get_harness())
+
+    @app.post("/api/sync")
+    def api_sync_now(full: bool = False):
+        """Update the local copy now. With the background thread this returns immediately."""
+        h = get_harness()
+        if h.data.local is None:
+            h.data.clear_cache()
+            return {"enabled": False}
+        worker = state.get("sync")
+        if worker is not None and worker.alive:
+            worker.request(full=full)
+            return {**sync_view(h), "requested": True}
+        h.data.local.sync(mode="full" if full else "auto")
+        h.data.clear_cache()
+        results.clear()
+        return sync_view(h)
 
     # ------------------------------------------------------------------ reports & CSV
     def spec_from(data: dict[str, Any]) -> ReportSpec:
@@ -481,6 +800,7 @@ def create_app(settings: Settings | None = None, *, harness: Any = None) -> Fast
         return {"version": __version__, "redmine_url": h.client.web_url, "user": me.get("login"),
                 "read_only": h.read_only, "pin_required": h.workflow.pin_required,
                 "pending": h.store.count_proposals("pending"),
-                "approved": h.store.count_proposals("approved"), "time": fmt_dt(utcnow(), settings.tz)}
+                "approved": h.store.count_proposals("approved"), "time": fmt_dt(utcnow(), settings.tz),
+                "local_copy": sync_view(h)}
 
     return app

@@ -15,6 +15,7 @@ import html
 import json
 import re
 import threading
+import time
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
@@ -277,7 +278,10 @@ class MockRedmine:
                                     "new_value": cf.get("value")})
                     existing["value"] = cf.get("value")
         for simple in ("subject", "description"):
-            if simple in attrs:
+            if simple in attrs and attrs[simple] != issue.get(simple):
+                # like Redmine: every change is a history entry and bumps updated_on
+                details.append({"property": "attr", "name": simple, "old_value": issue.get(simple),
+                                "new_value": attrs[simple]})
                 issue[simple] = attrs[simple]
         notes = attrs.get("notes") or ""
         if notes or details:
@@ -459,11 +463,13 @@ class MockRedmine:
         return 200, {"Content-Type": "text/html; charset=utf-8"}, body.encode("utf-8")
 
 
-def _make_handler(app: MockRedmine) -> type[BaseHTTPRequestHandler]:
+def _make_handler(app: MockRedmine, latency: float = 0.0) -> type[BaseHTTPRequestHandler]:
     class Handler(BaseHTTPRequestHandler):
         server_version = "MockRedmine/1.0"
 
         def _serve(self) -> None:
+            if latency > 0:  # simulate a slow or far-away Redmine
+                time.sleep(latency)
             length = int(self.headers.get("Content-Length") or 0)
             body = self.rfile.read(length) if length else b""
             status, headers, payload = app.handle(self.command, self.path, dict(self.headers.items()), body)
@@ -484,10 +490,10 @@ def _make_handler(app: MockRedmine) -> type[BaseHTTPRequestHandler]:
 
 
 def start_mock_server(host: str = "127.0.0.1", port: int = 0, app: MockRedmine | None = None,
-                      ) -> tuple[ThreadingHTTPServer, MockRedmine, str]:
+                      latency: float = 0.0) -> tuple[ThreadingHTTPServer, MockRedmine, str]:
     """Start the mock in a background thread. Returns (server, app, base_url)."""
     app = app or MockRedmine()
-    server = ThreadingHTTPServer((host, port), _make_handler(app))
+    server = ThreadingHTTPServer((host, port), _make_handler(app, latency))
     server.daemon_threads = True
     thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True,
                               name="mock-redmine")
@@ -497,10 +503,12 @@ def start_mock_server(host: str = "127.0.0.1", port: int = 0, app: MockRedmine |
     return server, app, f"http://{display_host}:{bound_port}"
 
 
-def serve_forever(host: str = "127.0.0.1", port: int = 3000) -> None:
-    app = MockRedmine()
-    server = ThreadingHTTPServer((host, port), _make_handler(app))
-    print(f"Mock Redmine listening on http://{host}:{port}  (API key: demo-api-key)")
+def serve_forever(host: str = "127.0.0.1", port: int = 3000, *, latency: float = 0.0, n_issues: int = 340) -> None:
+    app = MockRedmine(n_issues=n_issues)
+    server = ThreadingHTTPServer((host, port), _make_handler(app, latency))
+    server.daemon_threads = True
+    extra = f", {latency:g}s per request" if latency else ""
+    print(f"Mock Redmine listening on http://{host}:{port}  (API key: demo-api-key, {len(app.issues)} tickets{extra})")
     try:
         server.serve_forever()
     except KeyboardInterrupt:

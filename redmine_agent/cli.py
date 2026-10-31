@@ -20,12 +20,14 @@ import os
 import shutil
 import sys
 import textwrap
+import threading
+import time
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
 from . import __version__, analytics
 from .config import Settings, load_settings, mask_secret
-from .errors import HarnessError, PermissionDenied, RedmineError
+from .errors import HarnessError, PermissionDenied, RedmineConnectionError, RedmineError
 
 log = logging.getLogger("redmine_agent")
 
@@ -210,22 +212,57 @@ def cmd_check(ctx: Ctx) -> int:
     h = ctx.h
     approvers = [a["name"] for a in h.approvers.list()]
     config["approvers"] = ", ".join(approvers) if approvers else "none (recommended: python harness.py approver add \"<name>\")"
+    config["local_copy"] = _local_copy_summary(h)
+
+    def current_user() -> str:
+        u = h.client.current_user()
+        return f"{u.get('login')} (id {u.get('id')}, admin={u.get('admin')})"
+
+    def open_in_scope() -> str:
+        refs = [p for p in s.redmine.project_ids if str(p).strip()] or [None]
+        total = 0
+        for ref in refs:
+            params: dict[str, Any] = {"status_id": "open", "limit": 1}
+            if ref:
+                params["project_id"] = ref
+            total += int((h.client.get("/issues", **params) or {}).get("total_count") or 0)
+        where = ", ".join(s.redmine.project_ids) if s.redmine.project_ids else "all projects"
+        tip = ""
+        if total > 3000 and not s.redmine.project_ids:
+            tip = " - tip: set REDMINE_PROJECTS in .env to download only your team's projects"
+        return f"{total:,} in {where}{tip}"
+
+    def mine() -> str:
+        return str(int((h.client.get("/issues", assigned_to_id="me", status_id="open", limit=1) or {})
+                       .get("total_count") or 0))
+
     checks_spec: list[tuple[str, Callable[[], str], bool]] = [
-        ("current user", lambda: (lambda u: f"{u.get('login')} (id {u.get('id')}, admin={u.get('admin')})")(
-            h.client.current_user()), True),
+        ("current user", current_user, True),
         ("issue statuses", lambda: ", ".join(f"{x['name']}{'*' if x.get('is_closed') else ''}"
                                              for x in h.client.list_issue_statuses()) + "  (* = closed)", True),
         ("trackers", lambda: ", ".join(x["name"] for x in h.client.list_trackers()), False),
         ("priorities", lambda: ", ".join(x["name"] for x in h.client.list_priorities()), False),
         ("projects", lambda: f"{len(h.client.list_projects())} visible", False),
-        ("open issues assigned to me", lambda: str(len(h.client.list_issues(assigned_to_id="me", max_items=500))), False),
+        ("open tickets", open_in_scope, False),
+        ("open issues assigned to me", mine, False),
         ("time tracking", lambda: f"{len(h.client.list_time_entries(max_items=5))} recent entries readable", False),
     ]
     results = []
     ok = True
+    unreachable = False
     for label, fn, critical in checks_spec:
+        if unreachable:  # don't wait for a timeout on every remaining check
+            results.append({"name": label, "ok": False, "skipped": True,
+                            "detail": "skipped - Redmine could not be reached"})
+            continue
+        started = time.monotonic()
         try:
-            results.append({"name": label, "ok": True, "detail": fn()})
+            detail = fn()
+            results.append({"name": label, "ok": True, "detail": detail,
+                            "ms": round((time.monotonic() - started) * 1000)})
+        except RedmineConnectionError as exc:
+            ok, unreachable = False, True
+            results.append({"name": label, "ok": False, "detail": str(exc)})
         except (RedmineError, HarnessError) as exc:
             ok = ok and not critical
             results.append({"name": label, "ok": False, "detail": str(exc)})
@@ -235,8 +272,14 @@ def cmd_check(ctx: Ctx) -> int:
     header("Configuration")
     print_kv(list(config.items()))
     header("Redmine connectivity")
-    for r in results:
-        print(f"  [{'ok' if r['ok'] else 'FAIL':4}] {r['name']}: {r['detail']}")
+    for i, r in enumerate(results):
+        flag = "ok" if r["ok"] else ("skip" if r.get("skipped") else "FAIL")
+        extra = ""
+        if i == 0 and r.get("ms") is not None:  # how fast Redmine answers
+            extra = f"  - answered in {r['ms']} ms"
+            if r["ms"] > 1500:
+                extra += " (slow Redmine - the dashboard's local copy keeps pages fast anyway)"
+        print(f"  [{flag:4}] {r['name']}: {r['detail']}{extra}")
     print()
     print("All good." if ok else "Some checks failed - see messages above.")
     return 0 if ok else 1
@@ -948,6 +991,93 @@ def cmd_skills(ctx: Ctx) -> int:
 # --------------------------------------------------------------------------- commands: servers & agent
 
 
+def _local_copy_summary(h: Any) -> str:
+    local = h.data.local
+    if local is None:
+        return "off (sync.enabled: false) - pages read Redmine live"
+    st = local.status()
+    if not st["ready"]:
+        return f"not downloaded yet - run: python harness.py sync  ({st['path']})"
+    from .web.app import _ago
+
+    return (f"{st['tickets']:,} tickets, {st['time_entries']:,} time entries, updated {_ago(st['age_seconds'])} "
+            f"({st['path']})")
+
+
+def _with_progress(fn: Callable[[], Any], local: Any, *, quiet: bool = False) -> Any:
+    """Run ``fn`` while showing the local copy's progress on stderr."""
+    box: dict[str, Any] = {}
+
+    def run() -> None:
+        try:
+            box["value"] = fn()
+        except BaseException as exc:  # noqa: BLE001 - re-raised in the main thread
+            box["error"] = exc
+
+    worker = threading.Thread(target=run, name="sync", daemon=True)
+    worker.start()
+    tty = sys.stderr.isatty()
+    last_line, last_phase = "", ""
+    while worker.is_alive():
+        worker.join(0.5)
+        p = local.progress.snapshot()
+        if quiet or not p["running"]:
+            continue
+        line = f"{p['phase']}..." + (f" {p['done']:,} / {p['total']:,}" if p["total"] else "")
+        if tty and line != last_line:
+            print("\r" + line[:78].ljust(78), end="", file=sys.stderr, flush=True)
+        elif not tty and p["phase"] != last_phase:
+            print(line, file=sys.stderr, flush=True)
+        last_line, last_phase = line, p["phase"]
+    if tty and last_line:
+        print("\r" + " " * 78 + "\r", end="", file=sys.stderr, flush=True)
+    if "error" in box:
+        raise box["error"]
+    return box.get("value")
+
+
+def cmd_sync(ctx: Ctx) -> int:
+    h = ctx.h
+    local = h.data.local
+    if local is None:
+        raise HarnessError("The local copy is turned off (sync.enabled: false in config/settings.yaml).")
+    a = ctx.args
+    result: dict[str, Any] = {}
+    if not a.verbose:  # the progress line and the summary below say it all
+        logging.getLogger("redmine_agent.local_copy").setLevel(logging.WARNING)
+    if not a.status:
+        mode = "full" if a.full else "auto"
+        result = _with_progress(lambda: local.sync(mode=mode), local, quiet=a.json) or {}
+        if h.settings.sla.track_first_response:
+            result["histories_read"] = _with_progress(local.fill_journals, local, quiet=a.json)
+    st = local.status()
+    if a.json:
+        dump_json({**st, "result": result})
+        return 0
+    if result:
+        kind = "full download" if result.get("kind") == "full" else "changes only"
+        print(f"Local copy updated ({kind}: {result.get('requests', 0):,} requests in {result.get('seconds', 0)} s)")
+    elif not st["ready"]:
+        print("The local copy has not been downloaded yet. Run: python harness.py sync")
+        return 1
+    header("Local copy of Redmine")
+    print_kv([
+        ("tickets", f"{st['tickets']:,}" + (f"  ({result['changed_tickets']:,} changed)" if "changed_tickets" in result else "")),
+        ("time entries", f"{st['time_entries']:,}"),
+        ("ticket histories", f"{st['histories']:,} (for the first-response SLA)"),
+        ("holds", f"every open ticket + tickets updated in the last {st['history_days']} days"
+                  + (f" (since {st['coverage_start']})" if st["coverage_start"] else "")),
+        ("last update", st["synced_at_local"] or "never"),
+        ("last full download", st["full_synced_at_local"] or "never"),
+        ("file", st["path"]),
+    ])
+    if st["error"]:
+        print(f"\nLast update failed: {st['error']}")
+    print("\nThe dashboard updates the copy every "
+          f"{st['interval_minutes']:g} minutes by itself. Use --full to download everything again.")
+    return 0
+
+
 def cmd_dashboard(ctx: Ctx) -> int:
     import uvicorn
 
@@ -1046,7 +1176,7 @@ def cmd_mcp(ctx: Ctx) -> int:
 def cmd_mock(ctx: Ctx) -> int:
     from .mock.server import serve_forever
 
-    serve_forever(ctx.args.host, ctx.args.port)
+    serve_forever(ctx.args.host, ctx.args.port, latency=ctx.args.latency, n_issues=ctx.args.issues)
     return 0
 
 
@@ -1075,6 +1205,12 @@ def build_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser("check", help="validate configuration and Redmine connectivity")
     json_flag(sp)
     sp.set_defaults(func=cmd_check)
+
+    sp = sub.add_parser("sync", help="update the local copy of Redmine now (the dashboard does this by itself)")
+    sp.add_argument("--full", action="store_true", help="download everything again (drops deleted/moved tickets)")
+    sp.add_argument("--status", action="store_true", help="only show the local copy's status (no Redmine calls)")
+    json_flag(sp)
+    sp.set_defaults(func=cmd_sync)
 
     sp = sub.add_parser("my-tickets", help="tickets assigned to me")
     sp.add_argument("--status", choices=["open", "closed", "all"], default="open")
@@ -1274,6 +1410,8 @@ def build_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser("mock-server", help="run a mock Redmine for demos/tests")
     sp.add_argument("--host", default="127.0.0.1")
     sp.add_argument("--port", type=int, default=3000)
+    sp.add_argument("--latency", type=float, default=0.0, help="seconds added to every request (simulate a slow Redmine)")
+    sp.add_argument("--issues", type=int, default=340, help="number of demo tickets to generate")
     sp.set_defaults(func=cmd_mock)
     return p
 

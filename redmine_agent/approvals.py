@@ -22,6 +22,7 @@ Guarantees:
 
 from __future__ import annotations
 
+import logging
 import uuid
 from dataclasses import dataclass
 from typing import Any
@@ -43,6 +44,8 @@ from .guard import Approval, is_human_actor, payload_digest
 from .models import Issue
 from .store import HarnessStore, now_iso
 from .timeutils import fmt_dt, utcnow
+
+log = logging.getLogger(__name__)
 
 ACTIVE_STATES = ("pending", "approved")
 FINAL_STATES = ("rejected", "executed", "failed", "stale", "cancelled")
@@ -143,10 +146,7 @@ class ClosureWorkflow:
         status_ids = [str(s["id"]) for s in (self.data.status_lookup(n) for n in self.cfg.candidate_statuses) if s]
         if not status_ids:
             return []
-        params: dict[str, Any] = {"status_id": "|".join(status_ids), "sort": "updated_on"}
-        if scope == "me":
-            params["assigned_to_id"] = "me"
-        issues = self.data.fetch_issues(params)
+        issues = self.data.candidate_issues(status_ids, scope)
         busy = {p["issue_id"] for p in self.store.list_proposals(status=list(ACTIVE_STATES))}
         now = utcnow()
         out = []
@@ -462,8 +462,10 @@ class ClosureWorkflow:
             raise
 
         result: dict[str, Any] = {"ok": True, "message": "Ticket updated in Redmine."}
+        after = None
         if self.cfg.verify_after_execute:
             after = self.data.issue(p["issue_id"], include=())
+            self.data.remember_issue(after)  # dashboards show the change at once (no wait for the next update)
             result["new_status"] = after.status
             if after.status_id != p["target_status"]["id"]:
                 msg = (f"Redmine accepted the request but #{after.id} is still '{after.status}'. Its workflow "
@@ -480,6 +482,11 @@ class ClosureWorkflow:
         self.store.audit(actor=actor, action="issue.closed", target=f"issue:{p['issue_id']}",
                          details={"proposal_id": p["id"], "approved_by": p["reviewed_by"],
                                   "status": p["target_status"]["name"]})
+        if after is None:
+            try:
+                self.data.remember_issue(self.data.issue(p["issue_id"], include=()))
+            except RedmineError as exc:  # the closure itself succeeded; the next update will pick it up
+                log.info("Could not re-read #%s after closing it: %s", p["issue_id"], exc)
         self.data.clear_cache()
         return p
 

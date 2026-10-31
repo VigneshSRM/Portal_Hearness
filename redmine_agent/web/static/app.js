@@ -63,9 +63,122 @@
       }
       return data;
     },
+    // ---- top navigation bar
+    toggleNav(btn) {
+      const bar = $("#navbar");
+      const open = !bar.classList.contains("open");
+      bar.classList.toggle("open", open);
+      btn.setAttribute("aria-expanded", String(open));
+    },
+    closeMenus(except) {
+      $$("details.dropdown[open]").forEach((d) => { if (d !== except) d.removeAttribute("open"); });
+    },
+
+    // ---- name & logo page
+    maxLogoBytes: 1000000,
+    previewBrand() {
+      const name = ($("#brandName").value || "").trim();
+      const sub = ($("#brandSubtitle").value || "").trim();
+      $("#brandNameText").textContent = name || "\u2026";
+      const small = $("#brandSubtitleText");
+      small.textContent = sub;
+      small.hidden = !sub;
+      const mark = $(".navbar .brand-mark");
+      if (mark) mark.textContent = ((name.match(/[\p{L}\p{N}]/u) || ["?"])[0]).toUpperCase();
+    },
+    async saveBranding() {
+      try {
+        H.requireReviewer();
+        await H.api("PUT", "/api/branding", { name: $("#brandName").value, subtitle: $("#brandSubtitle").value });
+        H.toast("Saved. The new name is shown in the top bar.");
+        setTimeout(() => location.reload(), 700);
+      } catch (e) { if (e.message !== "no reviewer") H.toast(e.message, true); }
+    },
+    async uploadLogo(input) {
+      const file = input.files && input.files[0];
+      input.value = "";
+      if (!file) return;
+      if (file.size > H.maxLogoBytes) { H.toast("The logo is too large. Please use an image up to 1 MB.", true); return; }
+      try {
+        H.requireReviewer();
+        const resp = await fetch("/api/branding/logo", {
+          method: "PUT",
+          body: file,
+          headers: { "X-Harness-Request": "1", "X-Harness-Reviewer": H.getReviewer(), "Accept": "application/json",
+                     "Content-Type": file.type || "application/octet-stream" },
+        });
+        let data = null;
+        try { data = await resp.json(); } catch (e) { data = null; }
+        if (!resp.ok) throw new Error((data && data.error) || `HTTP ${resp.status}`);
+        H.toast("Logo saved.");
+        setTimeout(() => location.reload(), 700);
+      } catch (e) { if (e.message !== "no reviewer") H.toast(e.message, true); }
+    },
+    async removeLogo() {
+      if (!confirm("Remove the logo? The first letter of the name is shown instead.")) return;
+      try {
+        H.requireReviewer();
+        await H.api("DELETE", "/api/branding/logo");
+        location.reload();
+      } catch (e) { if (e.message !== "no reviewer") H.toast(e.message, true); }
+    },
+    async resetBranding() {
+      if (!confirm("Go back to the default name and logo?")) return;
+      try {
+        H.requireReviewer();
+        await H.api("POST", "/api/branding/reset");
+        location.reload();
+      } catch (e) { if (e.message !== "no reviewer") H.toast(e.message, true); }
+    },
+
+    // ---- local copy of Redmine: status chip, refresh button, first download
+    syncStatus() { return H.api("GET", "/api/sync"); },
+    renderSyncChip(st) {
+      const chip = $("#sync-chip");
+      if (!chip || !st || !st.enabled) return;
+      let text, cls = "sync-chip";
+      const fmt = (n) => Number(n || 0).toLocaleString();
+      if (st.running && !st.ready) { text = st.total ? `Downloading ${fmt(st.done)} / ${fmt(st.total)}` : "Downloading\u2026"; cls += " busy"; }
+      else if (st.running && st.kind !== "histories") { text = "Updating\u2026"; cls += " busy"; }
+      else if (st.error) { text = "Update failed"; cls += " bad"; }
+      else if (st.synced_at && chip.dataset.synced && st.synced_at !== chip.dataset.synced) { text = "New data \u2013 click to show"; cls += " new"; }
+      else if (st.synced_at_local) { text = `Updated ${st.age_text}`; }
+      else { text = "Not updated yet"; }
+      chip.textContent = text;
+      chip.className = cls;
+    },
+    chipClick() {
+      const chip = $("#sync-chip");
+      if (chip && chip.classList.contains("new")) location.reload();
+    },
     async refresh() {
-      try { await H.api("POST", "/api/cache/clear"); } catch (e) { /* ignore */ }
-      location.reload();
+      let before = null;
+      try { before = await H.syncStatus(); } catch (e) { /* ignore */ }
+      let st;
+      try { st = await H.api("POST", "/api/sync"); } catch (e) { H.toast(e.message, true); return; }
+      if (!st.requested) { location.reload(); return; }  // updated right away (no background thread)
+      H.renderSyncChip({ ...st, running: true, kind: "update", ready: true });
+      const since = before ? before.synced_at : null;
+      for (let i = 0; i < 1200; i++) {
+        await new Promise((r) => setTimeout(r, 1500));
+        try { st = await H.syncStatus(); } catch (e) { continue; }
+        const busy = st.running && st.kind !== "histories";
+        if (!busy && st.synced_at && st.synced_at !== since) { location.reload(); return; }
+        if (!busy && st.error && i > 1) { H.renderSyncChip(st); H.toast("Update failed: " + st.error, true); return; }
+        H.renderSyncChip({ ...st, running: true, kind: busy ? st.kind : "update" });
+      }
+    },
+    async waitForFirstSync() {
+      for (;;) {
+        await new Promise((r) => setTimeout(r, 2000));
+        let st;
+        try { st = await H.syncStatus(); } catch (e) { continue; }
+        if (st.ready) { location.reload(); return; }
+        const bar = $("#sync-bar"), phase = $("#sync-phase");
+        if (bar && st.total) bar.style.width = Math.min(100, Math.round((100 * st.done) / st.total)) + "%";
+        if (phase) phase.textContent = (st.phase || "Starting") + (st.total ? ` (${Number(st.done).toLocaleString()} of ${Number(st.total).toLocaleString()})` : "");
+        H.renderSyncChip(st);
+      }
     },
     filterTable(input, tableId) {
       const q = input.value.toLowerCase();
@@ -403,4 +516,28 @@
     },
   };
   window.Harness = H;
+  // Dropdown menus (More, account): one open at a time; close on a click elsewhere or Escape.
+  $$("details.dropdown").forEach((d) => d.addEventListener("toggle", () => { if (d.open) H.closeMenus(d); }));
+  document.addEventListener("click", (e) => {
+    $$("details.dropdown[open]").forEach((d) => { if (!d.contains(e.target)) d.removeAttribute("open"); });
+    const bar = $("#navbar");
+    if (bar && bar.classList.contains("open") && !bar.contains(e.target)) {
+      bar.classList.remove("open");
+      const btn = $(".nav-toggle");
+      if (btn) btn.setAttribute("aria-expanded", "false");
+    }
+  });
+  // keep the highlighted page in view if the link row had to scroll
+  const current = $(".nav-links .nav-link.active");
+  if (current && current.scrollIntoView && window.innerWidth > 1180) current.scrollIntoView({ block: "nearest", inline: "nearest" });
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    H.closeMenus(null);
+    const bar = $("#navbar");
+    if (bar) bar.classList.remove("open");
+  });
+  // Keep "Updated 2 min ago" current and offer new data after a background update (no surprise reloads).
+  if (document.getElementById("sync-chip") && !document.getElementById("sync-bar")) {
+    setInterval(() => { H.syncStatus().then(H.renderSyncChip).catch(() => {}); }, 30000);
+  }
 })();

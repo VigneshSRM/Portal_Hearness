@@ -84,11 +84,25 @@ team:
   members: []                   # names or user ids to include in the Team view; [] = everyone assigned
   capacity_hours_per_day: 8
 
+sync:
+  # Local copy of Redmine (data/redmine_cache.db): pages are built from it and never wait for Redmine.
+  enabled: true
+  interval_minutes: 5           # background update: only tickets changed since the last update
+  history_days: 180             # every open ticket + tickets updated in the last N days
+  full_sync_hours: 12           # download everything again this often (drops deleted/moved tickets)
+  max_age_seconds: 60           # command line / e-mail / AI tools: quick update first if older than this
+  workers: 4                    # parallel requests during a full download
+  journal_batch: 100            # ticket histories (first-response SLA) read per background round
+  time_entries_recent_days: 2   # recent days of time entries re-read on every update
+
 dashboard:
   host: 127.0.0.1               # 0.0.0.0 to share on your network (set username/password!)
   port: 8000
   default_days: 30
   cache_ttl_seconds: 120
+  brand_name: ${DASHBOARD_BRAND_NAME:-Redmine Agent}   # top bar name (or set it on the dashboard: More -> Name & logo)
+  brand_subtitle: Portal Harness
+  logo: ${DASHBOARD_LOGO:-}     # e.g. config/logo.png (PNG, JPG, SVG, WebP or GIF, up to 1 MB)
   username: ${DASHBOARD_USERNAME:-}
   password: ${DASHBOARD_PASSWORD:-}
   public_url: ""

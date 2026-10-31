@@ -11,10 +11,10 @@
   <ol>
     <li>Enable the REST API in Redmine: <em>Administration &rarr; Settings &rarr; API &rarr; Enable REST web service</em>.</li>
     <li>Copy your key from <em>My account &rarr; API access key</em> (right-hand sidebar, "Show").</li>
-    <li>Put these in the <code>.env</code> file next to <code>config/</code> (create it with <code>python -m redmine_agent init</code>):
+    <li>Put these in the <code>.env</code> file next to <code>config/</code> (create it with <code>python harness.py init</code>):
       <pre class="note-preview">REDMINE_URL=https://redmine.your-company.com
 REDMINE_API_KEY=your-40-character-api-key</pre></li>
-    <li>Check the connection: <code>python -m redmine_agent check</code>, then restart the dashboard.</li>
+    <li>Check the connection: <code>python harness.py check</code>, then restart the dashboard.</li>
   </ol>
   <p class="muted small">Currently configured URL: <code>{{ settings.redmine.url }}</code>. Internal certificate? set <code>redmine.ca_bundle</code>. Behind a proxy? set <code>HTTPS_PROXY</code>.</p>
   {% endif %}

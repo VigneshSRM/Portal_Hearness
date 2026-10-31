@@ -3,71 +3,117 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% block title %}Dashboard{% endblock %} - Redmine Agent</title>
-  <link rel="stylesheet" href="/static/app.css?v={{ version }}">
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%234f46e5'/><path d='M9 22V10h7a4 4 0 0 1 0 8h-7m7 0 5 4' stroke='white' stroke-width='2.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>">
+  <title>{% block title %}Dashboard{% endblock %} - {{ brand.name }}</title>
+  <link rel="stylesheet" href="/static/app.css?v={{ asset_version }}">
+  {% if brand.logo_url %}<link rel="icon" href="{{ brand.logo_url }}">
+  {% else %}<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%23dc2626'/><path d='M9 22V10h7a4 4 0 0 1 0 8h-7m7 0 5 4' stroke='white' stroke-width='2.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>">{% endif %}
 </head>
 <body>
-<div class="layout">
-  <aside class="sidebar" id="sidebar">
-    <a class="brand" href="/">
-      <span class="brand-mark">R</span>
-      <span><strong>Redmine Agent</strong><small>Portal Harness</small></span>
+<header class="navbar" id="navbar">
+  <div class="navbar-inner">
+    <a class="brand" href="/" title="{{ brand.name }}">
+      {% if brand.logo_url %}<img class="brand-logo" src="{{ brand.logo_url }}" alt="{{ brand.name }} logo">
+      {% else %}<span class="brand-mark" aria-hidden="true">{{ brand.initial }}</span>{% endif %}
+      <span class="brand-text">
+        <strong id="brandNameText">{{ brand.name }}</strong>
+        <small id="brandSubtitleText"{% if not brand.subtitle %} hidden{% endif %}>{{ brand.subtitle }}</small>
+      </span>
     </a>
-    <nav>
+
+    <nav class="nav" id="mainNav" aria-label="Main">
+      <div class="nav-links">
       {% for href, key, label in nav %}
-      <a href="{{ href }}" class="nav-link {% if active == key %}active{% endif %}">
-        <span>{{ label }}</span>
-        {% if key == 'approvals' and pending_count %}<span class="pill-count">{{ pending_count }}</span>{% endif %}
-      </a>
+      <a href="{{ href }}" class="nav-link{% if active == key %} active{% endif %}"{% if active == key %} aria-current="page"{% endif %}>{{ label }}
+        {%- if key == 'approvals' and pending_count %}<span class="pill-count" title="{{ pending_count }} waiting for approval">{{ pending_count }}</span>{% endif %}</a>
       {% endfor %}
-    </nav>
-    <div class="sidebar-foot">
-      {% if me %}<div class="who"><span class="avatar">{{ (me.firstname or me.login or '?')[:1] }}</span>
-        <span>{{ me.firstname }} {{ me.lastname }}<small>{{ me.login }}</small></span></div>{% endif %}
-      {% if read_only %}<div class="ro-flag" title="redmine.read_only is true - no changes can be made">READ-ONLY MODE</div>{% endif %}
-      <div class="muted small">v{{ version }} &middot; <a href="{{ redmine_url }}" target="_blank" rel="noopener">Redmine</a> &middot; <a href="/api/docs">API</a></div>
-    </div>
-  </aside>
-  <main class="main">
-    <header class="topbar">
-      <button class="icon-btn mobile-only" onclick="document.getElementById('sidebar').classList.toggle('open')" aria-label="Menu">&#9776;</button>
-      <div>
-        <h1>{% block heading %}{% endblock %}</h1>
-        <div class="muted small">{% block subheading %}{% endblock %}</div>
+      {# small screens: everything in one menu #}
+      {% for href, key, label in nav_more %}
+      <a href="{{ href }}" class="nav-link nav-extra{% if active == key %} active{% endif %}"{% if active == key %} aria-current="page"{% endif %}>{{ label }}</a>
+      {% endfor %}
       </div>
-      {% block filters %}
-      <form class="filters" method="get">
-        <label>Period
-          <select name="days" onchange="this.form.from.value='';this.form.to.value='';this.form.submit()">
-            {% for d in [7, 14, 30, 60, 90, 180, 365] %}
-            <option value="{{ d }}" {% if filters.days == d and not filters['from'] %}selected{% endif %}>Last {{ d }} days</option>
-            {% endfor %}
-          </select>
-        </label>
-        <label>From <input type="date" name="from" value="{{ filters['from'] }}"></label>
-        <label>To <input type="date" name="to" value="{{ filters['to'] }}"></label>
-        <label>Project
-          <select name="project" onchange="this.form.submit()">
-            <option value="">All projects</option>
-            {% for p in projects %}
-            <option value="{{ p.identifier or p.id }}" {% if filters.project in [p.identifier, p.id|string] %}selected{% endif %}>{{ p.name }}</option>
-            {% endfor %}
-          </select>
-        </label>
-        <button class="btn" type="submit">Apply</button>
-        <button class="btn ghost" type="button" title="Reload data from Redmine" onclick="Harness.refresh()">&#8635;</button>
-      </form>
-      {% endblock %}
-    </header>
-    <section class="content">
-      {% block content %}{% endblock %}
-    </section>
-  </main>
-</div>
+      <details class="dropdown nav-more">
+        <summary class="nav-link{% if active in more_keys %} active{% endif %}">More <span class="caret" aria-hidden="true"></span></summary>
+        <div class="menu">
+          {% for href, key, label in nav_more %}
+          <a href="{{ href }}"{% if active == key %} class="active" aria-current="page"{% endif %}>{{ label }}</a>
+          {% endfor %}
+          <div class="menu-sep"></div>
+          <a href="/api/docs">API documentation</a>
+          <a href="{{ redmine_url }}" target="_blank" rel="noopener">Open Redmine &#8599;</a>
+        </div>
+      </details>
+    </nav>
+
+    <div class="nav-right">
+      {% if read_only %}<span class="ro-flag" title="REDMINE_READ_ONLY is true - nothing can be changed in Redmine">READ-ONLY</span>{% endif %}
+      {% if sync and sync.enabled %}
+      <span id="sync-chip" class="sync-chip{% if sync.running and sync.kind != 'histories' %} busy{% elif sync.error %} bad{% endif %}"
+            data-synced="{{ sync.synced_at or '' }}" onclick="Harness.chipClick()"
+            title="Pages are built from a local copy of Redmine that updates every {{ '%g' % sync.interval_minutes }} minutes{% if sync.synced_at_local %} (last update {{ sync.synced_at_local }}){% endif %}. Click &#8635; to update now.">
+        {% if sync.running and not sync.ready %}Downloading&hellip;{% elif sync.running and sync.kind != 'histories' %}Updating&hellip;{% elif sync.error %}Update failed{% elif sync.synced_at_local %}Updated {{ sync.age_text }}{% else %}Not updated yet{% endif %}
+      </span>
+      {% endif %}
+      <details class="dropdown user-menu">
+        <summary class="avatar-btn" aria-label="Account menu" title="{{ me.firstname }} {{ me.lastname }}">
+          <span class="avatar">{{ (me.firstname or me.login or auth_user or '?')[:1] }}</span>
+        </summary>
+        <div class="menu right">
+          {% if me %}<div class="menu-head"><strong>{{ me.firstname }} {{ me.lastname }}</strong><small>{{ me.login }}</small></div>{% endif %}
+          <a href="/my-tickets">My tickets</a>
+          <a href="/approvals">Approvals</a>
+          <a href="/branding">Name &amp; logo</a>
+          <a href="{{ redmine_url }}" target="_blank" rel="noopener">Open Redmine &#8599;</a>
+          <div class="menu-foot">Portal Harness v{{ version }}</div>
+        </div>
+      </details>
+      <button class="nav-toggle" type="button" aria-label="Menu" aria-controls="mainNav" aria-expanded="false"
+              onclick="Harness.toggleNav(this)"><span></span></button>
+    </div>
+  </div>
+</header>
+
+<main class="main">
+  <div class="page-head">
+    <div class="page-title">
+      <h1>{% block heading %}{% endblock %}</h1>
+      <div class="muted small">{% block subheading %}{% endblock %}</div>
+    </div>
+    {% block filters %}
+    <form class="filters" method="get">
+      <label>Period
+        <select name="days" onchange="this.form.from.value='';this.form.to.value='';this.form.submit()">
+          {% for d in periods %}
+          <option value="{{ d }}" {% if filters.days == d and not filters['from'] %}selected{% endif %}>Last {{ d }} days</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>From <input type="date" name="from" value="{{ filters['from'] }}"></label>
+      <label>To <input type="date" name="to" value="{{ filters['to'] }}"></label>
+      <label>Project
+        <select name="project" onchange="this.form.submit()">
+          <option value="">All projects</option>
+          {% for p in projects %}
+          <option value="{{ p.identifier or p.id }}" {% if filters.project in [p.identifier, p.id|string] %}selected{% endif %}>{{ p.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <button class="btn" type="submit">Apply</button>
+      <button class="btn ghost" type="button" title="Fetch the latest changes from Redmine now" onclick="Harness.refresh()">&#8635;</button>
+    </form>
+    {% endblock %}
+  </div>
+  <section class="content">
+    {% if sync and sync.error and sync.ready %}
+    <div class="banner bad">Couldn't update from Redmine ({{ sync.error_at_local }}): {{ sync.error }}<br>
+      Showing the local copy from {{ sync.synced_at_local or 'earlier' }}. It retries automatically &mdash; check <code>REDMINE_URL</code>, VPN or proxy if this stays.</div>
+    {% endif %}
+    {% if notice %}<div class="banner warn">{{ notice }}</div>{% endif %}
+    {% block content %}{% endblock %}
+  </section>
+</main>
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
 <script src="/static/vendor/chart.umd.min.js"></script>
-<script src="/static/app.js?v={{ version }}"></script>
+<script src="/static/app.js?v={{ asset_version }}"></script>
 {% block scripts %}{% endblock %}
 </body>
 </html>
