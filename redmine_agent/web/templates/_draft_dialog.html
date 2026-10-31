@@ -1,0 +1,23 @@
+<dialog id="draftDialog" class="dialog">
+  <form method="dialog" class="dialog-body" onsubmit="return false">
+    <div class="dialog-head">
+      <h3>Draft closure for <span id="draftIssueLabel"></span></h3>
+      <button class="icon-btn" type="button" onclick="this.closest('dialog').close()" aria-label="Close">&times;</button>
+    </div>
+    <p class="notice">Drafting creates a <strong>pending proposal</strong> only. Nothing changes in Redmine until a person approves it on the Approvals page.</p>
+    <label class="field">Ticket number <input type="number" id="draftIssueId" min="1" required></label>
+    <label class="field">Template
+      <select id="draftTemplate" onchange="Harness.renderDraftVars()"></select>
+    </label>
+    <div id="draftTemplateInfo" class="muted small"></div>
+    <div id="draftVars"></div>
+    <div class="row gap">
+      <button class="btn ghost" type="button" onclick="Harness.previewDraft()">Preview note</button>
+    </div>
+    <pre id="draftPreview" class="note-preview" hidden></pre>
+    <div class="dialog-foot">
+      <button class="btn ghost" type="button" onclick="this.closest('dialog').close()">Cancel</button>
+      <button class="btn primary" type="button" onclick="Harness.submitDraft()">Create proposal for review</button>
+    </div>
+  </form>
+</dialog>

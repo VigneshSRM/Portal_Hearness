@@ -1,0 +1,24 @@
+# docker compose up -d
+# Needs a filled-in .env (python -m redmine_agent init). Set DASHBOARD_USERNAME/PASSWORD -
+# the dashboard is published on the network.
+services:
+  dashboard:
+    build: .
+    env_file: .env
+    environment:
+      DASHBOARD_HOST: 0.0.0.0
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+      - ./config:/app/config:ro
+    restart: unless-stopped
+
+  scheduler:
+    build: .
+    env_file: .env
+    command: ["python", "-m", "redmine_agent", "schedule"]
+    volumes:
+      - ./data:/app/data
+      - ./config:/app/config:ro
+    restart: unless-stopped

@@ -1,0 +1,9 @@
+requests>=2.31
+PyYAML>=6.0
+Jinja2>=3.1
+fastapi>=0.110
+uvicorn[standard]>=0.27
+python-dotenv>=1.0
+tzdata>=2024.1; platform_system == "Windows"
+# Optional: MCP server (python -m redmine_agent mcp)
+mcp>=1.2

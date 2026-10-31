@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block title %}Approvals{% endblock %}
+{% block heading %}Ticket closure approvals{% endblock %}
+{% block subheading %}Nothing is changed in Redmine until a person approves it here (or in the CLI). Every decision is audited.{% endblock %}
+{% block filters %}
+<div class="filters">
+  {% if auth_user %}
+    <span class="reviewer-tag">Reviewer: <strong>{{ auth_user }}</strong></span>
+  {% else %}
+    <label>Reviewer <input id="reviewerName" placeholder="Your name" oninput="Harness.setReviewer(this.value)" required></label>
+  {% endif %}
+  <button class="btn ghost" type="button" onclick="Harness.openDraft(null, '')">Draft for ticket #</button>
+</div>
+{% endblock %}
+{% block content %}
+{% if read_only %}<div class="banner warn">READ-ONLY mode is on: proposals can be drafted and approved, but they cannot be executed until <code>redmine.read_only</code> is turned off.</div>{% endif %}
+
+<div class="card">
+  <div class="card-head"><h3>Closure candidates</h3>
+    <span class="muted small">scope: {{ closure.scope }} &middot; status in {{ closure.candidate_statuses|join(', ') }} &middot; idle &ge; {{ closure.idle_days }} days</span>
+    <span class="spacer"></span>
+    <button class="btn ghost small" onclick="Harness.loadCandidates()">Find candidates</button>
+    <button class="btn small" onclick="Harness.autoDraft()">Draft proposals for all</button>
+  </div>
+  <div id="candidates" class="table-wrap"><p class="muted small">Press <em>Find candidates</em> to look for tickets that seem ready to close.</p></div>
+</div>
+
+<h2 class="section-title">Waiting for review <span class="pill-count">{{ groups.pending|length }}</span></h2>
+{% for p in groups.pending %}
+<div class="card proposal" id="p-{{ p.id }}" data-id="{{ p.id }}">
+  <div class="card-head">
+    <a class="tid" href="{{ p.issue.url }}" target="_blank" rel="noopener">#{{ p.issue_id }}</a>
+    <h3>{{ p.issue.subject }}</h3><span class="spacer"></span>
+    <span class="badge sla-pending">pending</span>
+  </div>
+  <div class="muted small">{{ p.issue.project }} &middot; {{ p.issue.tracker }} &middot; {{ p.issue.priority }} &middot; assignee {{ p.issue.assigned_to }} &middot; drafted by <strong>{{ p.created_by }}</strong> ({{ p.reason }}) &middot; template {{ p.template_id or '-' }}</div>
+  {% for w in p.warnings %}<div class="banner warn small">{{ w }}</div>{% endfor %}
+  <div class="proposal-grid">
+    <div>
+      <table class="table compact changes">
+        <thead><tr><th>Field</th><th>Current</th><th>After approval</th></tr></thead>
+        <tbody>
+          {% for ch in p.changes_view if ch.field not in ['Note', 'Private note'] %}
+          <tr><td>{{ ch.field }}</td><td>{{ ch['from'] if ch['from'] not in [none, ''] else '-' }}</td><td><strong>{{ ch.to }}</strong></td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <div class="field-row">
+        <label class="field">Target status
+          <select class="p-status">{% for s in statuses %}<option value="{{ s.id }}" {% if s.id == p.target_status.id %}selected{% endif %}>{{ s.name }}</option>{% endfor %}</select>
+        </label>
+        <label class="field">% done <input class="p-done" type="number" min="0" max="100" step="10" value="{{ p.changes.done_ratio if p.changes.done_ratio is defined else '' }}" placeholder="unchanged"></label>
+      </div>
+    </div>
+    <label class="field">{{ 'Private note' if p.changes.private_notes else 'Closing note' }} (editable)
+      <textarea class="p-note" rows="9">{{ p.changes.notes }}</textarea>
+    </label>
+  </div>
+  <div class="row gap">
+    <button class="btn primary" onclick="Harness.approve('{{ p.id }}', {{ p.issue_id }})">Approve &amp; close ticket</button>
+    <button class="btn" onclick="Harness.saveProposal('{{ p.id }}')">Save edits</button>
+    <button class="btn ghost danger-text" onclick="Harness.reject('{{ p.id }}')">Reject</button>
+  </div>
+</div>
+{% else %}
+<div class="card"><p class="empty">No proposals waiting for review.</p></div>
+{% endfor %}
+
+{% if groups.approved %}
+<h2 class="section-title">Approved, not yet executed <span class="pill-count">{{ groups.approved|length }}</span></h2>
+{% for p in groups.approved %}
+<div class="card proposal" id="p-{{ p.id }}">
+  <div class="card-head"><a class="tid" href="{{ p.issue.url }}" target="_blank" rel="noopener">#{{ p.issue_id }}</a><h3>{{ p.issue.subject }}</h3><span class="spacer"></span><span class="badge sla-on_track">approved by {{ p.reviewed_by }}</span></div>
+  <pre class="note-preview small">{{ p.changes.notes }}</pre>
+  <div class="row gap">
+    <button class="btn primary" onclick="Harness.execute('{{ p.id }}', {{ p.issue_id }})">Execute now</button>
+    <button class="btn ghost" onclick="Harness.cancel('{{ p.id }}')">Cancel</button>
+  </div>
+</div>
+{% endfor %}
+{% endif %}
+
+<h2 class="section-title">History</h2>
+<div class="card">
+  <div class="table-wrap"><table class="table compact">
+    <thead><tr><th>Proposal</th><th>Ticket</th><th>Outcome</th><th>Target</th><th>Drafted by</th><th>Reviewer</th><th>Updated (UTC)</th><th>Details</th></tr></thead>
+    <tbody>
+    {% for p in history %}
+      <tr>
+        <td><code>{{ p.id }}</code></td>
+        <td><a class="tid" href="{{ p.issue.url }}" target="_blank" rel="noopener">#{{ p.issue_id }}</a> {{ p.issue.subject }}</td>
+        <td><span class="badge outcome-{{ p.status }}">{{ p.status }}</span></td>
+        <td>{{ p.target_status.name }}</td><td>{{ p.created_by }}</td><td>{{ p.reviewed_by or '-' }}</td>
+        <td class="nowrap">{{ p.updated_at }}</td>
+        <td class="small">{{ (p.result or {}).get('message') or p.review_comment or '' }}</td>
+      </tr>
+    {% else %}<tr><td colspan="8" class="empty">No history yet.</td></tr>{% endfor %}
+    </tbody>
+  </table></div>
+</div>
+{% include "_draft_dialog.html" %}
+{% endblock %}
+{% block scripts %}<script>Harness.templates = {{ templates_list|tojson }}; Harness.authUser = {{ auth_user|tojson }}; Harness.initReviewer();</script>{% endblock %}

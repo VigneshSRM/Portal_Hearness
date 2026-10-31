@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Dashboard{% endblock %} - Redmine Agent</title>
+  <link rel="stylesheet" href="/static/app.css?v={{ version }}">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%234f46e5'/><path d='M9 22V10h7a4 4 0 0 1 0 8h-7m7 0 5 4' stroke='white' stroke-width='2.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>">
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar" id="sidebar">
+    <a class="brand" href="/">
+      <span class="brand-mark">R</span>
+      <span><strong>Redmine Agent</strong><small>Portal Harness</small></span>
+    </a>
+    <nav>
+      {% for href, key, label in nav %}
+      <a href="{{ href }}" class="nav-link {% if active == key %}active{% endif %}">
+        <span>{{ label }}</span>
+        {% if key == 'approvals' and pending_count %}<span class="pill-count">{{ pending_count }}</span>{% endif %}
+      </a>
+      {% endfor %}
+    </nav>
+    <div class="sidebar-foot">
+      {% if me %}<div class="who"><span class="avatar">{{ (me.firstname or me.login or '?')[:1] }}</span>
+        <span>{{ me.firstname }} {{ me.lastname }}<small>{{ me.login }}</small></span></div>{% endif %}
+      {% if read_only %}<div class="ro-flag" title="redmine.read_only is true - no changes can be made">READ-ONLY MODE</div>{% endif %}
+      <div class="muted small">v{{ version }} &middot; <a href="{{ redmine_url }}" target="_blank" rel="noopener">Redmine</a> &middot; <a href="/api/docs">API</a></div>
+    </div>
+  </aside>
+  <main class="main">
+    <header class="topbar">
+      <button class="icon-btn mobile-only" onclick="document.getElementById('sidebar').classList.toggle('open')" aria-label="Menu">&#9776;</button>
+      <div>
+        <h1>{% block heading %}{% endblock %}</h1>
+        <div class="muted small">{% block subheading %}{% endblock %}</div>
+      </div>
+      {% block filters %}
+      <form class="filters" method="get">
+        <label>Period
+          <select name="days" onchange="this.form.from.value='';this.form.to.value='';this.form.submit()">
+            {% for d in [7, 14, 30, 60, 90, 180, 365] %}
+            <option value="{{ d }}" {% if filters.days == d and not filters['from'] %}selected{% endif %}>Last {{ d }} days</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>From <input type="date" name="from" value="{{ filters['from'] }}"></label>
+        <label>To <input type="date" name="to" value="{{ filters['to'] }}"></label>
+        <label>Project
+          <select name="project" onchange="this.form.submit()">
+            <option value="">All projects</option>
+            {% for p in projects %}
+            <option value="{{ p.identifier or p.id }}" {% if filters.project in [p.identifier, p.id|string] %}selected{% endif %}>{{ p.name }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <button class="btn" type="submit">Apply</button>
+        <button class="btn ghost" type="button" title="Reload data from Redmine" onclick="Harness.refresh()">&#8635;</button>
+      </form>
+      {% endblock %}
+    </header>
+    <section class="content">
+      {% block content %}{% endblock %}
+    </section>
+  </main>
+</div>
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+<script src="/static/vendor/chart.umd.min.js"></script>
+<script src="/static/app.js?v={{ version }}"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

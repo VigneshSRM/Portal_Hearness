@@ -1,0 +1,56 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "redmine-agent"
+version = "1.0.0"
+description = "Portal Harness: a permission-first automation agent for the Redmine ticketing system (daily e-mails, SLA/team dashboards, CSV reports, closure templates, human-approved ticket closure)."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Portal Harness" }]
+keywords = ["redmine", "automation", "sla", "dashboard", "agent", "mcp", "ticketing"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Framework :: FastAPI",
+  "Topic :: Software Development :: Bug Tracking",
+]
+dependencies = [
+  "requests>=2.31",
+  "PyYAML>=6.0",
+  "Jinja2>=3.1",
+  "fastapi>=0.110",
+  "uvicorn[standard]>=0.27",
+  "python-dotenv>=1.0",
+  "tzdata>=2024.1; platform_system == 'Windows'",
+]
+
+[project.optional-dependencies]
+mcp = ["mcp>=1.2"]
+dev = ["pytest>=8", "httpx>=0.27", "mcp>=1.2"]
+
+[project.scripts]
+redmine-agent = "redmine_agent.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["redmine_agent*"]
+
+[tool.setuptools.package-data]
+redmine_agent = [
+  "email_templates/*",
+  "web/templates/*.html",
+  "web/static/*.css",
+  "web/static/*.js",
+  "web/static/vendor/*",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-q"
+filterwarnings = ["ignore::DeprecationWarning"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"

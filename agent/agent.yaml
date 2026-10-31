@@ -1,0 +1,97 @@
+# Redmine Ticketing Automation Agent - manifest
+#
+# Declares what the agent is, what it can do and - just as important - what it cannot do.
+# The tool list below is verified against the code by tests/test_agent_tools.py, so this file
+# cannot silently drift from what the agent is actually able to call.
+
+name: redmine-ticketing-agent
+version: 1.0.0
+description: >
+  Automation agent for the Redmine ticketing system. Sends daily overview e-mails, builds
+  dashboards (overview, SLA, team, performance, time spent), exports customised CSV reports,
+  lists the tickets assigned to you, manages closure templates and closes tickets - but only
+  after a person has reviewed and approved each change.
+
+system_prompt: agent/system_prompt.md
+
+connectivity:
+  protocol: Redmine REST API (JSON)
+  reference: https://www.redmine.org/projects/redmine/wiki/Rest_api
+  authentication: X-Redmine-API-Key header (or HTTP Basic auth)
+  minimum_redmine_version: "4.1"     # 5.0+ recommended (include=allowed_statuses, journals)
+
+runtimes:
+  chat: python -m redmine_agent chat          # any OpenAI-compatible LLM, approval prompts in the terminal
+  mcp: python -m redmine_agent mcp            # Claude Desktop/Code, VS Code, Cursor... (see .mcp.json)
+  dashboard: python -m redmine_agent dashboard
+  scheduler: python -m redmine_agent schedule
+
+capabilities:
+  - id: daily-overview-email
+    summary: Daily overview e-mail (KPIs, SLA breaches/at risk, new/closed, overdue, my tickets, team).
+  - id: dashboards
+    summary: Overview, SLA, Team, Performance and Time-spent dashboards.
+  - id: csv-reports
+    summary: Customised reports (dataset, filters, columns, group-by) exported to CSV.
+  - id: my-tickets
+    summary: Tickets assigned to the API-key owner, sorted by urgency with SLA state.
+  - id: closure-templates
+    summary: Create, edit, preview and delete reusable closure templates.
+  - id: approved-closure
+    summary: Draft closure proposals; execute them only after explicit human approval.
+
+restrictions:
+  - id: no-change-without-permission
+    rule: The agent never changes anything in Redmine without explicit, recorded human approval.
+    enforced_by:
+      - redmine_agent/guard.py        # every POST/PUT needs an Approval bound to the exact payload (SHA-256)
+      - redmine_agent/client.py       # raw non-GET requests are refused unless authorised by the guard
+      - redmine_agent/approvals.py    # only humans can approve; stale tickets are re-reviewed; results verified
+  - id: no-self-approval
+    rule: The agent has no tool to approve proposals. Approval happens in the dashboard or an interactive CLI.
+  - id: read-only-switch
+    rule: REDMINE_READ_ONLY=true blocks every write, even approved ones.
+  - id: no-deletes
+    rule: The agent cannot delete tickets, time entries, users or projects (no such capability exists).
+
+permission_levels:
+  read: no side effects
+  draft: local and reversible; changes nothing in Redmine and sends nothing (pending proposals, CSV files)
+  write: changes Redmine, sends e-mail or edits shared templates; a person approves each call
+
+tools:
+  read:
+    - whoami
+    - list_my_tickets
+    - get_ticket
+    - search_tickets
+    - dashboard_summary
+    - list_closure_templates
+    - preview_closure_note
+    - find_closure_candidates
+    - list_closure_proposals
+    - get_proposal
+    - preview_daily_overview
+    - list_report_columns
+  draft:
+    - draft_closure_proposal
+    - cancel_proposal
+    - export_report_csv
+  write:
+    - close_ticket
+    - create_closure_template
+    - update_closure_template
+    - delete_closure_template
+    - send_daily_overview
+
+mcp:
+  # MCP clients can auto-approve tool calls, so over MCP only read + draft tools are exposed,
+  # plus execute_approved_proposal which only works on proposals a person already approved.
+  exposed: [read, draft]
+  extra_tools: [execute_approved_proposal]
+
+automation:
+  schedule: daily at email.send_time (config/settings.yaml)
+  jobs:
+    - auto-draft closure proposals for idle Resolved tickets (drafts only - never executes)
+    - build the daily overview; send it when email.enabled is true (configuring it = standing permission)

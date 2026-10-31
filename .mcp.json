@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "redmine-agent": {
+      "command": "python",
+      "args": ["-m", "redmine_agent", "mcp"],
+      "env": {
+        "REDMINE_AGENT_HOME": "."
+      }
+    }
+  }
+}

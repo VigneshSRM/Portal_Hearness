@@ -1,0 +1,123 @@
+# =====================================================================================
+#  Portal Harness - Redmine Agent configuration
+#  Copy to config/settings.yaml (`python -m redmine_agent init` does it for you).
+#  Secrets belong in .env (or real environment variables), referenced as ${VAR}.
+# =====================================================================================
+
+timezone: Asia/Kolkata          # IANA timezone for reports, SLA calendar and the scheduler
+data_dir: data                  # local state: approvals DB, audit log, outbox, exports
+
+redmine:
+  url: ${REDMINE_URL:-http://localhost:3000}
+  public_url: ${REDMINE_PUBLIC_URL:-}   # browser URL for ticket links if it differs from `url` (e.g. Docker/internal DNS)
+  api_key: ${REDMINE_API_KEY}   # My account -> API access key (preferred over username/password)
+  username: ${REDMINE_USERNAME:-}
+  password: ${REDMINE_PASSWORD:-}
+  verify_ssl: true
+  ca_bundle: ""                 # path to your company CA (PEM) if Redmine uses an internal certificate
+  timeout: 30
+  page_size: 100                # Redmine caps collection pages at 100
+  max_retries: 3                # GET requests only - writes are never retried
+  max_items: 5000               # safety cap per query
+  impersonate: ""               # X-Redmine-Switch-User (admin API keys only)
+  read_only: false              # true = hard block on ALL changes (approvals cannot execute)
+  project_ids: []               # limit the harness to these projects (ids or identifiers); [] = all visible
+
+sla:
+  # First matching rule wins. Match on priority / tracker / project ("A|B" = either).
+  rules:
+    - { priority: Immediate, response_hours: 1,  resolution_hours: 4 }
+    - { priority: Urgent,    response_hours: 2,  resolution_hours: 8 }
+    - { priority: High,      response_hours: 4,  resolution_hours: 24 }
+    - { priority: Normal,    response_hours: 8,  resolution_hours: 72 }
+    - { priority: Low,       response_hours: 24, resolution_hours: 120 }
+    # - { name: "Features", tracker: Feature, resolution_hours: 240 }
+  default_response_hours: 8
+  default_resolution_hours: 72
+  at_risk_ratio: 0.8            # flag tickets that have used 80% of their window
+  business_hours:
+    enabled: true               # false = 24x7 calendar hours
+    start: "09:00"
+    end: "18:00"
+    workdays: [mon, tue, wed, thu, fri]
+    holidays: []                # e.g. ["2026-11-08", "2026-12-25"]
+  track_first_response: true    # reads issue journals (cached) to measure first-response SLA
+  first_response_max_issues: 400
+  response_ignore_private_notes: true
+
+email:
+  enabled: ${EMAIL_ENABLED:-false}   # true = the scheduler actually sends the daily overview
+  smtp_host: ${SMTP_HOST:-}
+  smtp_port: ${SMTP_PORT:-587}
+  security: starttls            # starttls | ssl | none
+  username: ${SMTP_USERNAME:-}
+  password: ${SMTP_PASSWORD:-}
+  sender: ${SMTP_SENDER:-}
+  recipients: []                # or DAILY_RECIPIENTS="a@x.com,b@x.com" in .env
+  cc: []
+  subject_prefix: "[Redmine]"
+  send_time: "09:00"
+  send_days: [mon, tue, wed, thu, fri]
+  lookback_hours: 24            # "new" / "closed" sections cover this many hours
+  sla_window_days: 30           # SLA compliance / team stats window
+  attach_csv: true              # attach open tickets with SLA status as CSV
+  max_rows: 15
+  dashboard_url: ""             # link shown in the e-mail, e.g. https://redmine-agent.example.com
+
+closure:
+  scope: me                     # me = only tickets assigned to the API key owner | all
+  candidate_statuses: [Resolved]
+  idle_days: 3                  # no activity for N days before a ticket becomes a candidate
+  require_done_ratio: null      # e.g. 100
+  close_status: Closed          # used when a template does not set target_status
+  default_template: standard-resolution
+  template_rules:               # choose a template automatically (first match wins)
+    - { tracker: Bug, template: bug-fixed }
+    - { tracker: Support, template: support-resolved }
+    - { tracker: Incident, template: incident-resolved }
+  templates_file: data/closure_templates.yaml
+  seed_templates_file: config/closure_templates.yaml
+  auto_propose_on_schedule: true    # daily job DRAFTS proposals; a person must still approve
+  verify_after_execute: true
+
+team:
+  members: []                   # names or user ids to include in the Team view; [] = everyone assigned
+  capacity_hours_per_day: 8
+
+dashboard:
+  host: 127.0.0.1               # 0.0.0.0 to share on your network (set username/password!)
+  port: 8000
+  default_days: 30
+  cache_ttl_seconds: 120
+  username: ${DASHBOARD_USERNAME:-}
+  password: ${DASHBOARD_PASSWORD:-}
+  public_url: ""
+
+llm:                            # optional - only for `chat` (any OpenAI-compatible endpoint)
+  base_url: ${LLM_BASE_URL:-https://api.openai.com/v1}
+  api_key: ${LLM_API_KEY:-}
+  model: ${LLM_MODEL:-gpt-4o-mini}
+  temperature: 0.1
+  max_steps: 8
+  headers: {}                   # e.g. {"api-key": "..."} for Azure OpenAI
+  query_params: {}              # e.g. {"api-version": "2024-10-21"}
+
+reports:
+  presets:
+    weekly-sla:
+      title: Weekly SLA report
+      dataset: sla
+      days: 7
+      date_field: closed_on
+      status: closed
+    open-backlog-by-assignee:
+      title: Open backlog by assignee
+      dataset: issues
+      date_field: open_now
+      status: open
+      group_by: [assigned_to, priority]
+    monthly-timesheet:
+      title: Monthly timesheet by person and project
+      dataset: time_entries
+      days: 30
+      group_by: [user, project]

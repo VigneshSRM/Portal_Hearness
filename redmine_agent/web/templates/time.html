@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% from "macros.html" import kpi, chart_card, export_link %}
+{% block title %}Time spent{% endblock %}
+{% block heading %}Time spent{% endblock %}
+{% block subheading %}{{ data.project }} &middot; {{ data.window.label }} &middot; from Redmine time entries{% endblock %}
+{% block content %}
+{% set k = data.kpis %}
+<div class="kpi-grid">
+  {{ kpi("Total hours", k.total_hours, k.entries ~ " time entries") }}
+  {{ kpi("Per working day", k.avg_hours_per_workday, k.working_days ~ " working days") }}
+  {{ kpi("People", k.people, "logged time") }}
+  {{ kpi("Tickets", k.issues, "with time logged") }}
+</div>
+<div class="card">
+  <div class="card-head"><h3>Hours per day</h3><span class="spacer"></span>{{ export_link("time", filters, "Export time entries CSV") }}</div>
+  <div class="chart-box"><canvas id="trendChart"></canvas></div>
+</div>
+<div class="grid-3">
+  {{ chart_card("userChart", "By person") }}
+  {{ chart_card("projectChart", "By project") }}
+  {{ chart_card("activityChart", "By activity") }}
+</div>
+<div class="grid-2">
+  <div class="card">
+    <div class="card-head"><h3>Most time-consuming tickets</h3><span class="muted small">in period</span></div>
+    <div class="table-wrap"><table class="table compact"><thead><tr><th>#</th><th>Subject</th><th>Status</th><th>Hours (period)</th><th>Total spent</th><th>Estimate</th></tr></thead>
+    <tbody>{% for r in data.top_issues %}<tr><td><a class="tid" href="{{ r.url }}" target="_blank" rel="noopener">#{{ r.id }}</a></td><td class="subject">{{ r.subject }}<div class="muted small">{{ r.project }} &middot; {{ r.assigned_to }}</div></td><td>{{ r.status }}</td><td><strong>{{ r.hours }}</strong></td><td>{{ r.total_spent_hours if r.total_spent_hours is not none else '-' }}</td><td>{{ r.estimated_hours if r.estimated_hours is not none else '-' }}</td></tr>{% else %}<tr><td colspan="6" class="empty">No time logged.</td></tr>{% endfor %}</tbody></table></div>
+  </div>
+  <div class="card">
+    <div class="card-head"><h3>Over estimate</h3><span class="muted small">spent &gt; estimated</span></div>
+    <div class="table-wrap"><table class="table compact"><thead><tr><th>#</th><th>Subject</th><th>Estimate</th><th>Spent</th><th>Overrun</th></tr></thead>
+    <tbody>{% for r in data.over_budget %}<tr><td><a class="tid" href="{{ r.url }}" target="_blank" rel="noopener">#{{ r.id }}</a></td><td class="subject">{{ r.subject }}<div class="muted small">{{ r.assigned_to }} &middot; {{ r.status }}</div></td><td>{{ r.estimated_hours }}</td><td>{{ r.spent_hours }}</td><td class="danger">+{{ r.overrun_pct|pct }}</td></tr>{% else %}<tr><td colspan="5" class="empty">No tickets over estimate.</td></tr>{% endfor %}</tbody></table></div>
+  </div>
+</div>
+<div class="card">
+  <div class="card-head"><h3>By tracker</h3></div>
+  <div class="chart-box short"><canvas id="trackerChart"></canvas></div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+  const D = {{ data|tojson }};
+  Harness.bar("trendChart", D.trend.labels, [{label: "Hours", data: D.trend.hours}]);
+  Harness.hbar("userChart", D.by_user);
+  Harness.doughnut("projectChart", D.by_project);
+  Harness.doughnut("activityChart", D.by_activity);
+  Harness.hbar("trackerChart", D.by_tracker);
+</script>
+{% endblock %}
