@@ -47,8 +47,9 @@ Go step by step and say what you are about to do before each step that writes fi
    - `REDMINE_URL` - the Redmine root, e.g. `https://redmine.example.com`
    - `REDMINE_API_KEY` - Redmine → *My account* → *API access key* → *Show*
    - `REDMINE_READ_ONLY=true` is a safe start; `false` lets approved closures apply.
-   - `REDMINE_PROJECTS` - recommended for a big Redmine: only these projects (ids or identifiers,
-     comma-separated, sub-projects included) are downloaded and shown. Empty = every project.
+   - `REDMINE_PROJECTS` - recommended for a big Redmine: only these projects (comma-separated,
+     sub-projects included) are downloaded and shown. Best the code from the project's address
+     (`/projects/<code>`); numbers and names work too. Empty = every project.
 
    Do **not** ask for the API key in this chat - it would be sent to the AI provider. If the user pastes
    it anyway, write it only into `.env` and never repeat it.
@@ -101,6 +102,7 @@ Karthik Raja; the data is realistic but fake.
 | `TLS/SSL verification failed` | Company certificate authority | `redmine.ca_bundle: config/company-ca.pem` in `config/settings.yaml` |
 | `Expected JSON ... got text/html` | URL points at a login page or proxy | Use the Redmine root URL |
 | `412` | `REDMINE_IMPERSONATE` login unknown | Fix or remove it |
+| `check`: "REDMINE_PROJECTS: 'X' is not a project you can see" (older versions: "open tickets: Not found (404)") | A `REDMINE_PROJECTS` value is no project Redmine knows | Use the code from the project's address; `check` suggests similar projects; `python harness.py api /projects.json --all` lists them |
 | Dashboard stuck on "Preparing your dashboard" | First download of a big Redmine | Set `REDMINE_PROJECTS` to the team's projects and restart; check progress with `python harness.py sync --status` |
 | Dashboard shows "Couldn't update from Redmine" | Redmine unreachable; pages still work from the copy | Fix URL, VPN or proxy; it retries by itself |
 

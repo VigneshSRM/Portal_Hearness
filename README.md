@@ -255,15 +255,16 @@ Settings, in **`.env`**:
 
 ```ini
 # .env
-REDMINE_PROJECTS=service-desk,customer-portal   # only these projects (ids or identifiers, comma-separated)
+REDMINE_PROJECTS=service-desk,customer-portal   # only these projects (code, number or name, comma-separated)
 SYNC_INTERVAL_MINUTES=5                         # how often changes are fetched in the background
 SYNC_HISTORY_DAYS=180                           # how far back the copy goes (open tickets: always)
 ```
 
 - **`REDMINE_PROJECTS`** is the most important setting for a big Redmine. Only these projects (and
-  their sub-projects) are downloaded and shown, so the first download is much smaller. Use the short
-  name from the project's web address (`/projects/<identifier>`) or its number. Empty means every project
-  you can see.
+  their sub-projects) are downloaded and shown, so the first download is much smaller. Best is the short
+  code from the project's web address (`/projects/<identifier>`), but its number or its name work too, in
+  any capitals (`RIM Team`, `Rim-Team`). `python harness.py check` shows which project each value matched,
+  or suggests similar projects when nothing matches. Empty means every project you can see.
 - **`SYNC_HISTORY_DAYS`** decides how far back the copy goes. Choosing a longer dashboard period than this
   shows a note that older closed tickets are missing.
 - The **header** shows when the data was last updated, for example *Updated 2 min ago*. The **↻** button
@@ -399,7 +400,7 @@ Everything below goes in **`.env`**. Values in `config/settings.yaml` are the te
 | `REDMINE_PASSWORD` | | Password for `REDMINE_USERNAME` |
 | `REDMINE_CA_BUNDLE` | | Company certificate authority file (PEM) |
 | `REDMINE_VERIFY_SSL` | | `false` disables certificate checks (avoid; use `REDMINE_CA_BUNDLE`) |
-| `REDMINE_PROJECTS` | Recommended for a big Redmine | Only these projects (ids or identifiers, comma-separated; sub-projects included) |
+| `REDMINE_PROJECTS` | Recommended for a big Redmine | Only these projects: code from the project's address, number or name (comma-separated; sub-projects included) |
 | `REDMINE_IMPERSONATE` | | Admin keys only: act as another user |
 | `SYNC_INTERVAL_MINUTES` | | How often the local copy fetches changes from Redmine (default `5`) |
 | `SYNC_HISTORY_DAYS` | | How far back the local copy goes (default `180`; open tickets are always included) |
@@ -829,6 +830,7 @@ python harness.py dashboard
 | Proposal `stale` | The ticket changed after drafting | Draft it again |
 | Your AI tool doesn't see the skills | Started in another folder | Start it in the project folder, or run `skills install`; restart or reload the tool |
 | Dashboard not reachable from other PCs | Bound to this computer only | Set `DASHBOARD_HOST=0.0.0.0` plus a login; open the port in the firewall |
+| *"REDMINE_PROJECTS: 'X' is not a project you can see"*, or *"open tickets: Not found (404)"* in `check` | A value in `REDMINE_PROJECTS` is not a project Redmine knows (typo, or a project you can't see) | Use the code from the project's address (`/projects/<code>`); `check` suggests similar projects. Names and other capitals are accepted |
 | *"Preparing your dashboard"* stays for a long time | The first download of a big Redmine | Wait for the progress bar, or set `REDMINE_PROJECTS` to your team's projects and restart. Only the first start is slow |
 | Red note *"Couldn't update from Redmine"* | Redmine unreachable (VPN, proxy, URL) | Pages keep working from the local copy. Fix the connection; it retries by itself |
 | Note *"This period starts before the local copy"* | Period longer than `SYNC_HISTORY_DAYS` | Choose a shorter period, or raise `SYNC_HISTORY_DAYS` (for example `365`) and restart |

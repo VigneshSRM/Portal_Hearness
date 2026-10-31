@@ -90,6 +90,7 @@ redmine_agent/
   models.py            Issue / Journal / TimeEntry views over API JSON
   data.py              read layer + Snapshot (issues, time entries, journals): local copy or live
   local_copy.py        SQLite copy of Redmine + background updates (why pages open in milliseconds)
+  projects.py          what people write for a project (code, number, name, other capitals) -> the project
   sla.py               business-hours calendar + SLA engine (response & resolution)
   analytics.py         overview / sla / team / performance / time / my-tickets numbers
   reports.py           customisable reports -> CSV (formula-injection safe)

@@ -24,9 +24,10 @@ from zoneinfo import ZoneInfo
 
 from .client import RedmineClient
 from .config import Settings
-from .errors import HarnessError, LocalCopyNotReady, RedmineError
+from .errors import LocalCopyNotReady, RedmineError
 from .local_copy import LocalCopy
 from .models import Issue, Journal, TimeEntry
+from .projects import resolve_id
 from .sla import BusinessCalendar, SLAEngine, SLAResult
 from .store import HarnessStore
 from .timeutils import Window, utcnow
@@ -253,22 +254,21 @@ class DataService:
     def current_user(self) -> dict[str, Any]:
         return self._reference("me", self.client.current_user, {}, optional=False)
 
-    def resolve_project(self, ref: str | int | None) -> int | None:
+    def resolve_project(self, ref: str | int | None, *, source: str = "") -> int | None:
+        """Project number for a number, code (any capitals) or name - see :mod:`redmine_agent.projects`."""
         if ref in (None, "", "all", "*"):
             return None
         text = str(ref).strip()
         if text.isdigit():
             return int(text)
-        for p in self.projects():
-            if p.get("identifier") == text or p.get("name", "").lower() == text.lower():
-                return int(p["id"])
-        raise HarnessError(f"Unknown project '{ref}' (use the numeric id, identifier or exact name).")
+        return resolve_id(text, self.projects(), source=source)
 
     def scoped_project_ids(self, project: str | int | None = None) -> list[int | None]:
         if project not in (None, "", "all", "*"):
             return [self.resolve_project(project)]
-        if self.settings.redmine.project_ids:
-            return [self.resolve_project(p) for p in self.settings.redmine.project_ids]
+        refs = [p for p in self.settings.redmine.project_ids if str(p).strip()]
+        if refs:
+            return list(dict.fromkeys(self.resolve_project(p, source="REDMINE_PROJECTS") for p in refs))
         return [None]
 
     def project_label(self, project: str | int | None) -> str:

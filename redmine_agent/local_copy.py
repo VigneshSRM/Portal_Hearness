@@ -46,6 +46,7 @@ from typing import Any, Callable, Iterable
 
 from .errors import ForbiddenError, HarnessError, NotFoundError, RedmineConnectionError, RedmineError
 from .models import Issue, Journal, TimeEntry
+from .projects import ProjectMatch, explain_not_found, match_project, resolve_id
 from .timeutils import Window, fmt_dt, parse_datetime, utcnow
 
 log = logging.getLogger(__name__)
@@ -419,14 +420,14 @@ class LocalCopy:
         """Project ids (including sub-projects, like Redmine's project filter) - None means every project."""
         view = view or self._view
         if project not in (None, "", "all", "*"):
-            refs = [project]
+            refs, source = [project], ""
         else:
-            refs = [p for p in self.settings.redmine.project_ids if str(p).strip()]
+            refs, source = [p for p in self.settings.redmine.project_ids if str(p).strip()], "REDMINE_PROJECTS"
         if not refs:
             return None
         ids: set[int] = set()
         for ref in refs:
-            stack = [self._resolve(ref, view)]
+            stack = [self._resolve(ref, view, source)]
             while stack:
                 current = stack.pop()
                 if current not in ids:
@@ -435,14 +436,12 @@ class LocalCopy:
         return ids
 
     @staticmethod
-    def _resolve(ref: Any, view: _View) -> int:
+    def _resolve(ref: Any, view: _View, source: str = "") -> int:
+        """Project number for a number, code (any capitals) or name - see :mod:`redmine_agent.projects`."""
         text = str(ref).strip()
         if text.isdigit():
             return int(text)
-        for p in view.reference.get("projects") or []:
-            if p.get("identifier") == text or str(p.get("name", "")).lower() == text.lower():
-                return int(p["id"])
-        raise HarnessError(f"Unknown project '{ref}' (use the numeric id, identifier or exact name).")
+        return resolve_id(text, view.reference.get("projects") or [], source=source)
 
     def issues(self, *, project: str | int | None = None) -> list[Issue]:
         view = self._view
@@ -532,9 +531,13 @@ class LocalCopy:
         try:
             result = self._full(started) if full else self._incremental(started)
         except Exception as exc:
-            self._write(meta={"last_error": str(exc)[:500] or exc.__class__.__name__, "last_error_at": _iso(utcnow())})
+            clearer = self._explain_not_found(exc) if isinstance(exc, NotFoundError) else None
+            error = clearer or exc
+            self._write(meta={"last_error": str(error)[:500] or error.__class__.__name__, "last_error_at": _iso(utcnow())})
             self.load()
-            raise
+            if clearer is None:
+                raise
+            raise clearer from exc
         finally:
             self.progress.finish()
         result.update({"kind": "full" if full else "update", "seconds": round(time.monotonic() - clock, 2),
@@ -566,9 +569,27 @@ class LocalCopy:
             log.warning("Could not update from Redmine (%s) - using the local copy from %s.", exc,
                         fmt_dt(self.synced_at, self.tz) if self.synced_at else "earlier")
 
-    def _scope_params(self) -> list[dict[str, Any]]:
+    def _project_matches(self) -> list[ProjectMatch]:
+        """REDMINE_PROJECTS matched against the project list (names and other capitals work too)."""
+        projects = self.reference("projects", []) or []
         refs = [str(p).strip() for p in self.settings.redmine.project_ids if str(p).strip()]
-        return [{"project_id": ref} for ref in refs] or [{}]
+        return [match_project(ref, projects, source="REDMINE_PROJECTS") for ref in refs]
+
+    def _scope_params(self) -> list[dict[str, Any]]:
+        """``project_id`` per configured project, as Redmine understands it (the number, or the code)."""
+        values = dict.fromkeys(m.api_value for m in self._project_matches())
+        return [{"project_id": value} for value in values] or [{}]
+
+    def _explain_not_found(self, exc: NotFoundError) -> NotFoundError | None:
+        """A clearer error when a 404 most likely comes from a REDMINE_PROJECTS code Redmine does not know."""
+        try:
+            unlisted = [m.ref for m in self._project_matches() if m.id is None]
+        except HarnessError:
+            return None
+        if not unlisted:
+            return None
+        return NotFoundError(explain_not_found(unlisted, self.reference("projects", []) or []),
+                             status=exc.status, method=exc.method, url=exc.url)
 
     def _first_full_day(self, moment: datetime) -> date:
         """First local calendar day that starts at or after ``moment``."""
