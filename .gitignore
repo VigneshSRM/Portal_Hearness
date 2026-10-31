@@ -1,0 +1,26 @@
+# Secrets & local configuration
+.env
+config/settings.yaml
+
+# Runtime state (approval queue DB, audit log, outbox, CSV exports, editable templates)
+data/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

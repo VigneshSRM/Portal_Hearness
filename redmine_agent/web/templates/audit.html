@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Audit log{% endblock %}
+{% block heading %}Audit log{% endblock %}
+{% block subheading %}Every draft, approval, rejection, execution, denied attempt, export and e-mail - newest first{% endblock %}
+{% block filters %}
+<div class="filters"><input class="search" type="search" placeholder="Filter..." oninput="Harness.filterTable(this, 'auditTable')"></div>
+{% endblock %}
+{% block content %}
+<div class="card">
+  <div class="table-wrap"><table class="table compact" id="auditTable">
+    <thead><tr><th>When (UTC)</th><th>Actor</th><th>Action</th><th>Target</th><th>Outcome</th><th>Details</th></tr></thead>
+    <tbody>
+    {% for r in rows %}
+      <tr class="{% if r.outcome in ['denied', 'error'] %}row-alert{% endif %}">
+        <td class="nowrap">{{ r.ts }}</td><td>{{ r.actor }}</td><td><code>{{ r.action }}</code></td>
+        <td>{{ r.target }}</td><td><span class="badge outcome-{{ r.outcome }}">{{ r.outcome }}</span></td>
+        <td class="small mono">{{ r.details|tojson }}</td>
+      </tr>
+    {% else %}<tr><td colspan="6" class="empty">No events yet.</td></tr>{% endfor %}
+    </tbody>
+  </table></div>
+</div>
+{% endblock %}

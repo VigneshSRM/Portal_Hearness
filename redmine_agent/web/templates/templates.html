@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}Closure templates{% endblock %}
+{% block heading %}Closure templates{% endblock %}
+{% block subheading %}Reusable closing notes with variables, target status, % done and custom fields &middot; stored in <code>{{ template_file }}</code>{% endblock %}
+{% block filters %}
+<div class="filters"><button class="btn primary" onclick="Harness.editTemplate(null)">+ New template</button></div>
+{% endblock %}
+{% block content %}
+<div class="tpl-layout">
+  <div class="tpl-list">
+    {% for t in templates_list %}
+    <div class="card tpl-card" id="tpl-{{ t.id }}">
+      <div class="card-head">
+        <h3>{{ t.name }}</h3><span class="muted small"><code>{{ t.id }}</code></span><span class="spacer"></span>
+        <button class="btn ghost small" onclick="Harness.editTemplate('{{ t.id }}')">Edit</button>
+        <button class="btn ghost small danger-text" onclick="Harness.deleteTemplate('{{ t.id }}')">Delete</button>
+      </div>
+      {% if t.description %}<p class="muted">{{ t.description }}</p>{% endif %}
+      <div class="chips">
+        <span class="chip">&rarr; {{ t.target_status }}</span>
+        <span class="chip">% done: {{ t.done_ratio if t.done_ratio is not none else 'unchanged' }}</span>
+        {% if t.private_note %}<span class="chip">private note</span>{% endif %}
+        {% for k, v in (t.custom_fields or {}).items() %}<span class="chip">{{ k }} = {{ v }}</span>{% endfor %}
+        {% for tr in (t.applies_to or {}).get('trackers', []) %}<span class="chip accent">{{ tr }}</span>{% endfor %}
+      </div>
+      <pre class="note-preview small">{{ t.note }}</pre>
+      {% if t.variables %}<div class="muted small">Variables: {% for v in t.variables %}<code>{{ v.name }}</code>{% if v.required %}*{% endif %}{% if not loop.last %}, {% endif %}{% endfor %}</div>{% endif %}
+    </div>
+    {% else %}
+    <div class="card"><p class="empty">No templates yet - create one.</p></div>
+    {% endfor %}
+  </div>
+
+  <div class="card tpl-editor" id="tplEditor" hidden>
+    <div class="card-head"><h3 id="tplEditorTitle">New template</h3><span class="spacer"></span>
+      <button class="icon-btn" onclick="document.getElementById('tplEditor').hidden = true" aria-label="Close">&times;</button></div>
+    <form id="tplForm" onsubmit="Harness.saveTemplate(); return false;">
+      <input type="hidden" name="_mode" value="create">
+      <div class="field-row">
+        <label class="field">ID (slug) <input name="id" required pattern="[a-z0-9][a-z0-9-]{1,62}" placeholder="bug-fixed"></label>
+        <label class="field">Name <input name="name" required placeholder="Bug fixed and deployed"></label>
+      </div>
+      <label class="field">Description <input name="description"></label>
+      <div class="field-row">
+        <label class="field">Target status
+          <select name="target_status">{% for s in statuses %}<option value="{{ s.name }}" {% if s.name == settings.closure.close_status %}selected{% endif %}>{{ s.name }}{% if s.is_closed %} (closed){% endif %}</option>{% endfor %}</select>
+        </label>
+        <label class="field">% done <input type="number" name="done_ratio" min="0" max="100" step="10" value="100" placeholder="leave empty = unchanged"></label>
+        <label class="field check"><input type="checkbox" name="private_note"> Private note</label>
+      </div>
+      <label class="field">Closing note
+        <textarea name="note" rows="10" required placeholder="Hello {{ '{{' }} issue.author {{ '}}' }}, ..."></textarea>
+        <span class="muted small">Placeholders: <code>{{ '{{' }} issue.id {{ '}}' }}</code> <code>issue.subject</code> <code>issue.author</code> <code>issue.assigned_to</code> <code>issue.project</code> <code>issue.priority</code> <code>issue.spent_hours</code> <code>issue.url</code> <code>me.name</code> <code>today</code> <code>now</code> + your variables. Jinja2 (sandboxed), e.g. <code>{{ '{%' }} if issue.tracker == "Bug" {{ '%}' }}...{{ '{%' }} endif {{ '%}' }}</code></span>
+      </label>
+      <div class="field"><span>Variables <a href="#" onclick="Harness.addVarRow();return false">+ add</a></span>
+        <div id="varRows" class="var-rows"></div>
+      </div>
+      <div class="field"><span>Custom fields to set <a href="#" onclick="Harness.addCfRow();return false">+ add</a></span>
+        <div id="cfRows" class="var-rows"></div>
+      </div>
+      <div class="field"><span>Suggest for trackers</span>
+        <div class="chips">{% for t in trackers %}<label class="chip check"><input type="checkbox" name="tracker" value="{{ t.name }}"> {{ t.name }}</label>{% endfor %}</div>
+      </div>
+      <div class="field-row">
+        <label class="field">Preview with ticket # <input type="number" id="tplPreviewIssue" placeholder="first of my tickets"></label>
+        <div class="field"><span>&nbsp;</span><button class="btn ghost" type="button" onclick="Harness.previewTemplate()">Preview</button></div>
+      </div>
+      <pre id="tplPreview" class="note-preview" hidden></pre>
+      <div class="row gap"><button class="btn primary" type="submit">Save template</button>
+        <button class="btn ghost" type="button" onclick="document.getElementById('tplEditor').hidden = true">Cancel</button></div>
+      <p class="muted small">Saved as <span id="reviewerHint"></span>. Template changes are recorded in the audit log.</p>
+    </form>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}<script>Harness.templates = {{ templates_list|tojson }}; Harness.authUser = {{ auth_user|tojson }};</script>{% endblock %}

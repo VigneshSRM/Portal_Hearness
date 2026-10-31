@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ title }}</title>
+</head>
+{% macro badge(state, label) -%}
+{%- set colors = {"breached": "#b42318", "at_risk": "#b54708", "on_track": "#067647", "met": "#067647", "pending": "#175cd3"} -%}
+<span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;color:#ffffff;background:{{ colors.get(state, '#667085') }};">{{ label }}</span>
+{%- endmacro %}
+{% macro ticket_table(rows, show_sla=True, show_closed=False) -%}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;font-size:13px;">
+  <tr style="background:#f2f4f7;color:#475467;text-align:left;">
+    <th style="padding:8px;border-bottom:1px solid #eaecf0;">#</th>
+    <th style="padding:8px;border-bottom:1px solid #eaecf0;">Subject</th>
+    <th style="padding:8px;border-bottom:1px solid #eaecf0;">Priority</th>
+    <th style="padding:8px;border-bottom:1px solid #eaecf0;">Assignee</th>
+    {% if show_closed %}<th style="padding:8px;border-bottom:1px solid #eaecf0;">Closed</th>{% else %}<th style="padding:8px;border-bottom:1px solid #eaecf0;">Status</th>{% endif %}
+    {% if show_sla %}<th style="padding:8px;border-bottom:1px solid #eaecf0;">SLA</th>{% endif %}
+  </tr>
+  {% for r in rows %}
+  <tr>
+    <td style="padding:8px;border-bottom:1px solid #f2f4f7;white-space:nowrap;"><a href="{{ r.url }}" style="color:#3538cd;text-decoration:none;font-weight:600;">#{{ r.id }}</a></td>
+    <td style="padding:8px;border-bottom:1px solid #f2f4f7;color:#101828;">{{ r.subject }}<div style="color:#667085;font-size:11px;">{{ r.project }} &middot; {{ r.tracker }}</div></td>
+    <td style="padding:8px;border-bottom:1px solid #f2f4f7;{% if r.high_priority %}color:#b42318;font-weight:600;{% endif %}">{{ r.priority }}</td>
+    <td style="padding:8px;border-bottom:1px solid #f2f4f7;">{{ r.assigned_to }}</td>
+    {% if show_closed %}<td style="padding:8px;border-bottom:1px solid #f2f4f7;white-space:nowrap;">{{ r.closed_on }}</td>{% else %}<td style="padding:8px;border-bottom:1px solid #f2f4f7;">{{ r.status }}{% if r.overdue %} <span style="color:#b42318;font-size:11px;">(overdue)</span>{% endif %}</td>{% endif %}
+    {% if show_sla %}<td style="padding:8px;border-bottom:1px solid #f2f4f7;white-space:nowrap;">{{ badge(r.sla_state, r.sla_label) }}{% if r.sla_due and not r.is_closed %}<div style="color:#667085;font-size:11px;">due {{ r.sla_due }}</div>{% endif %}</td>{% endif %}
+  </tr>
+  {% else %}
+  <tr><td colspan="6" style="padding:10px;color:#667085;">Nothing to report.</td></tr>
+  {% endfor %}
+</table>
+{%- endmacro %}
+{% macro section(title, subtitle="") -%}
+<tr><td style="padding:22px 24px 8px 24px;">
+  <div style="font-size:16px;font-weight:700;color:#101828;">{{ title }}</div>
+  {% if subtitle %}<div style="font-size:12px;color:#667085;margin-top:2px;">{{ subtitle }}</div>{% endif %}
+</td></tr>
+{%- endmacro %}
+<body style="margin:0;padding:0;background:#f4f5f7;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f5f7;padding:24px 0;">
+<tr><td align="center">
+<table role="presentation" width="760" cellpadding="0" cellspacing="0" style="max-width:760px;width:100%;background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #eaecf0;">
+  <tr><td style="background:#1d2939;padding:22px 24px;color:#ffffff;">
+    <div style="font-size:12px;letter-spacing:1px;text-transform:uppercase;color:#98a2b3;">Redmine daily overview</div>
+    <div style="font-size:22px;font-weight:700;margin-top:4px;">{{ date_label }}</div>
+    <div style="font-size:12px;color:#d0d5dd;margin-top:6px;">{{ project }} &middot; last {{ lookback_hours }}h activity &middot; SLA window {{ window_days }} days &middot; generated {{ generated_at }} ({{ timezone }})</div>
+  </td></tr>
+
+  <tr><td style="padding:20px 16px 4px 16px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+      {% for label, value, color in [("Open", kpis.open, "#101828"), ("New", kpis.new, "#175cd3"), ("Closed", kpis.closed, "#067647"), ("SLA breached", kpis.breached, "#b42318"), ("At risk", kpis.at_risk, "#b54708"), ("Overdue", kpis.overdue, "#b42318")] %}
+      <td width="16%" style="padding:6px;">
+        <div style="border:1px solid #eaecf0;border-radius:10px;padding:12px 10px;text-align:center;">
+          <div style="font-size:24px;font-weight:700;color:{{ color }};">{{ value }}</div>
+          <div style="font-size:11px;color:#667085;text-transform:uppercase;letter-spacing:.5px;">{{ label }}</div>
+        </div>
+      </td>
+      {% endfor %}
+    </tr></table>
+  </td></tr>
+
+  <tr><td style="padding:6px 24px 0 24px;font-size:13px;color:#344054;">
+    Resolution SLA compliance ({{ window_days }}d): <b>{{ kpis.sla_compliance if kpis.sla_compliance is not none else "n/a" }}{% if kpis.sla_compliance is not none %}%{% endif %}</b>
+    {% if kpis.response_compliance is not none %}&nbsp;&middot;&nbsp; First-response compliance: <b>{{ kpis.response_compliance }}%</b>{% endif %}
+    &nbsp;&middot;&nbsp; Avg resolution: <b>{{ kpis.avg_resolution }}</b>
+    &nbsp;&middot;&nbsp; Hours logged yesterday: <b>{{ kpis.hours_yesterday }}</b>
+    &nbsp;&middot;&nbsp; Unassigned: <b>{{ kpis.unassigned }}</b>
+  </td></tr>
+
+  {% if pending_approvals or approved_waiting %}
+  <tr><td style="padding:16px 24px 0 24px;">
+    <div style="background:#fffaeb;border:1px solid #fedf89;border-radius:10px;padding:12px 14px;font-size:13px;color:#93370d;">
+      <b>{{ pending_approvals }}</b> ticket closure proposal(s) are waiting for your review{% if approved_waiting %} and <b>{{ approved_waiting }}</b> approved proposal(s) are ready to execute{% endif %}.
+      Nothing is closed until a person approves it.
+      {% if dashboard_url %}<a href="{{ dashboard_url }}/approvals" style="color:#3538cd;font-weight:600;">Review now &rarr;</a>{% endif %}
+    </div>
+  </td></tr>
+  {% endif %}
+
+  {{ section("SLA breached", "Open tickets past their resolution or first-response target") }}
+  <tr><td style="padding:0 24px;">{{ ticket_table(breached) }}</td></tr>
+
+  {{ section("At risk", "Open tickets that have consumed most of their SLA window") }}
+  <tr><td style="padding:0 24px;">{{ ticket_table(at_risk) }}</td></tr>
+
+  {{ section("New tickets", "Created in the last " ~ lookback_hours ~ " hours") }}
+  <tr><td style="padding:0 24px;">{{ ticket_table(new_tickets) }}</td></tr>
+
+  {{ section("Closed tickets", "Closed in the last " ~ lookback_hours ~ " hours") }}
+  <tr><td style="padding:0 24px;">{{ ticket_table(closed_tickets, show_sla=True, show_closed=True) }}</td></tr>
+
+  {{ section("Overdue", "Open tickets past their due date") }}
+  <tr><td style="padding:0 24px;">{{ ticket_table(overdue) }}</td></tr>
+
+  {{ section("Assigned to me" ~ (" (" ~ me_name ~ ")" if me_name else ""), "Your open tickets, most urgent first") }}
+  <tr><td style="padding:0 24px;">{{ ticket_table(my_tickets) }}</td></tr>
+
+  {{ section("Team workload", "Open tickets, closures and hours logged in the last " ~ window_days ~ " days") }}
+  <tr><td style="padding:0 24px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;font-size:13px;">
+      <tr style="background:#f2f4f7;color:#475467;text-align:left;">
+        <th style="padding:8px;">Member</th><th style="padding:8px;">Open</th><th style="padding:8px;">High prio</th>
+        <th style="padding:8px;">Overdue</th><th style="padding:8px;">SLA breached</th><th style="padding:8px;">Closed</th>
+        <th style="padding:8px;">SLA %</th><th style="padding:8px;">Hours</th>
+      </tr>
+      {% for m in team %}
+      <tr>
+        <td style="padding:8px;border-bottom:1px solid #f2f4f7;font-weight:600;color:#101828;">{{ m.name }}</td>
+        <td style="padding:8px;border-bottom:1px solid #f2f4f7;">{{ m.open }}</td>
+        <td style="padding:8px;border-bottom:1px solid #f2f4f7;">{{ m.open_high }}</td>
+        <td style="padding:8px;border-bottom:1px solid #f2f4f7;">{{ m.overdue }}</td>
+        <td style="padding:8px;border-bottom:1px solid #f2f4f7;{% if m.breached_open %}color:#b42318;font-weight:600;{% endif %}">{{ m.breached_open }}</td>
+        <td style="padding:8px;border-bottom:1px solid #f2f4f7;">{{ m.closed }}</td>
+        <td style="padding:8px;border-bottom:1px solid #f2f4f7;">{{ m.sla_compliance if m.sla_compliance is not none else "-" }}</td>
+        <td style="padding:8px;border-bottom:1px solid #f2f4f7;">{{ m.hours }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+  </td></tr>
+
+  <tr><td style="padding:24px;font-size:11px;color:#98a2b3;border-top:1px solid #eaecf0;margin-top:16px;">
+    Generated by the Portal Harness Redmine Agent. This is a read-only report - no tickets were changed.
+    {% if dashboard_url %}Open the <a href="{{ dashboard_url }}" style="color:#3538cd;">dashboard</a> for details and CSV exports.{% endif %}
+    {% if read_only %}<br>The agent is running in READ-ONLY mode.{% endif %}
+  </td></tr>
+</table>
+</td></tr>
+</table>
+</body>
+</html>

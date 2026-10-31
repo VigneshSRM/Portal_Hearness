@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block title %}Reports{% endblock %}
+{% block heading %}Reports &amp; CSV export{% endblock %}
+{% block subheading %}Build a customised report: pick the dataset, filters, columns and grouping, preview it, then download CSV (Excel-ready).{% endblock %}
+{% block filters %}{% endblock %}
+{% block content %}
+<div class="report-layout">
+  <form class="card report-form" id="reportForm" onsubmit="Harness.previewReport(); return false;">
+    <div class="card-head"><h3>Report definition</h3></div>
+    <label class="field">Preset
+      <select name="preset" id="presetSelect" onchange="Harness.applyPreset(this.value)">
+        <option value="">- custom -</option>
+        {% for key, p in presets.items() %}<option value="{{ key }}">{{ p.title or key }}</option>{% endfor %}
+      </select>
+    </label>
+    <label class="field">Dataset
+      <select name="dataset" id="datasetSelect" onchange="Harness.renderColumns()">
+        <option value="issues">Tickets</option>
+        <option value="sla">Tickets with SLA details</option>
+        <option value="time_entries">Time entries</option>
+        <option value="team">Team summary</option>
+      </select>
+    </label>
+    <label class="field">Title <input name="title" placeholder="My report"></label>
+    <div class="field-row">
+      <label class="field">Last N days <input type="number" name="days" value="30" min="1" max="3650"></label>
+      <label class="field">Date field
+        <select name="date_field" id="dateField">
+          <option value="created_on">Created</option><option value="closed_on">Closed</option>
+          <option value="updated_on">Updated</option><option value="open_now">Currently open (no date)</option>
+        </select>
+      </label>
+    </div>
+    <div class="field-row">
+      <label class="field">From <input type="date" name="date_from"></label>
+      <label class="field">To <input type="date" name="date_to"></label>
+    </div>
+    <div class="field-row">
+      <label class="field">Status <select name="status"><option value="all">All</option><option value="open">Open</option><option value="closed">Closed</option></select></label>
+      <label class="field">Project
+        <select name="project"><option value="">All</option>{% for p in projects %}<option value="{{ p.identifier or p.id }}">{{ p.name }}</option>{% endfor %}</select>
+      </label>
+    </div>
+    <details class="more">
+      <summary>More filters</summary>
+      <div class="field-row">
+        <label class="field">Assignee / user <input name="assignee" placeholder="name or id; A|B"></label>
+        <label class="field">Tracker <input name="tracker" placeholder="Bug|Support"></label>
+      </div>
+      <div class="field-row">
+        <label class="field">Priority <input name="priority" placeholder="High|Urgent"></label>
+        <label class="field">SLA state <select name="sla_state"><option value="">Any</option><option>breached</option><option>at_risk</option><option>on_track</option><option>met</option><option>pending</option></select></label>
+      </div>
+      <label class="field">Subject contains <input name="text"></label>
+    </details>
+    <div class="field"><span>Columns</span>
+      <div class="col-tools"><a href="#" onclick="Harness.toggleCols(true);return false">all</a> &middot; <a href="#" onclick="Harness.toggleCols(false);return false">none</a> &middot; <a href="#" onclick="Harness.renderColumns();return false">defaults</a></div>
+      <div id="columnsBox" class="columns-box"></div>
+    </div>
+    <label class="field">Group by (aggregate)
+      <select name="group_by" id="groupBy" multiple size="5"></select>
+      <span class="muted small">Ctrl/Cmd-click for several. Grouping replaces columns with totals (count, SLA %, hours...).</span>
+    </label>
+    <div class="field-row">
+      <label class="field">Sort by <select name="sort_by" id="sortBy"></select></label>
+      <label class="field check"><input type="checkbox" name="descending"> Descending</label>
+    </div>
+    <div class="row gap">
+      <button class="btn primary" type="submit">Preview</button>
+      <button class="btn" type="button" onclick="Harness.downloadReport()">Download CSV</button>
+    </div>
+  </form>
+  <div class="card report-result">
+    <div class="card-head"><h3 id="reportTitle">Preview</h3><span class="muted small" id="reportMeta"></span></div>
+    <div id="reportPreview" class="table-wrap"><p class="empty">Choose options and press <strong>Preview</strong>.</p></div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+  Harness.reportColumns = {{ columns|tojson }};
+  Harness.reportPresets = {{ presets|tojson }};
+  Harness.renderColumns();
+</script>
+{% endblock %}

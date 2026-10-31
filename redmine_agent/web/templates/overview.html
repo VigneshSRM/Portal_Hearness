@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% from "macros.html" import kpi, ticket_table, chart_card, export_link %}
+{% block title %}Overview{% endblock %}
+{% block heading %}Overview{% endblock %}
+{% block subheading %}{{ data.project }} &middot; {{ data.window.label }} &middot; updated {{ data.generated_at }}{% endblock %}
+{% block content %}
+{% set k = data.kpis %}
+<div class="kpi-grid">
+  {{ kpi("Open tickets", k.open, k.high_priority_open ~ " high priority") }}
+  {{ kpi("Created", k.created, "in period") }}
+  {{ kpi("Closed", k.closed, "net flow " ~ ("%+d"|format(k.net_flow)), "good") }}
+  {{ kpi("SLA compliance", k.sla_compliance|pct, k.sla_judged ~ " closed tickets judged", "good" if (k.sla_compliance or 0) >= 90 else ("warn" if (k.sla_compliance or 0) >= 75 else "bad")) }}
+  {{ kpi("SLA breached", k.sla_breached_open, "open tickets", "bad" if k.sla_breached_open else "") }}
+  {{ kpi("At risk", k.sla_at_risk_open, "open, near SLA limit", "warn" if k.sla_at_risk_open else "") }}
+  {{ kpi("Overdue", k.overdue, "past due date", "bad" if k.overdue else "") }}
+  {{ kpi("Avg resolution", k.avg_resolution, "median " ~ k.median_resolution) }}
+  {{ kpi("Hours logged", k.hours_spent, "time entries in period") }}
+  {{ kpi("Unassigned", k.unassigned, "open tickets", "warn" if k.unassigned else "") }}
+</div>
+
+<div class="grid-2">
+  {{ chart_card("trendChart", "Created vs closed", "per day") }}
+  {{ chart_card("agingChart", "Open ticket age", "how long open tickets have been waiting") }}
+</div>
+<div class="grid-3">
+  {{ chart_card("statusChart", "Open by status") }}
+  {{ chart_card("priorityChart", "Open by priority") }}
+  {{ chart_card("assigneeChart", "Open by assignee") }}
+</div>
+
+<div class="card">
+  <div class="card-head"><h3>SLA breached</h3><span class="muted small">open tickets past their target</span>
+    <span class="spacer"></span>{{ export_link("sla-open", filters, "Export open SLA CSV") }}</div>
+  {{ ticket_table(data.breached, "No SLA breaches - nice.") }}
+</div>
+<div class="grid-2">
+  <div class="card">
+    <div class="card-head"><h3>At risk</h3><span class="muted small">used &ge; {{ (settings.sla.at_risk_ratio * 100)|round|int }}% of the SLA window</span></div>
+    {{ ticket_table(data.at_risk, "Nothing at risk.", show_due=False) }}
+  </div>
+  <div class="card">
+    <div class="card-head"><h3>Overdue</h3><span class="muted small">past due date</span></div>
+    {{ ticket_table(data.overdue, "No overdue tickets.", show_sla=False) }}
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+  const D = {{ data|tojson }};
+  Harness.line("trendChart", D.trend.labels, [
+    {label: "Created", data: D.trend.created},
+    {label: "Closed", data: D.trend.closed}
+  ]);
+  Harness.bar("agingChart", D.aging.map(x => x.label), [{label: "Open tickets", data: D.aging.map(x => x.value)}]);
+  Harness.doughnut("statusChart", D.open_by_status);
+  Harness.doughnut("priorityChart", D.open_by_priority);
+  Harness.hbar("assigneeChart", D.open_by_assignee);
+</script>
+{% endblock %}

@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% from "macros.html" import kpi, chart_card, export_link %}
+{% block title %}Team{% endblock %}
+{% block heading %}Team{% endblock %}
+{% block subheading %}{{ data.project }} &middot; {{ data.window.label }} &middot; closures attributed to the assignee{% endblock %}
+{% block content %}
+{% set t = data.totals %}
+<div class="kpi-grid">
+  {{ kpi("Members", t.members) }}
+  {{ kpi("Open (assigned)", t.open) }}
+  {{ kpi("Unassigned", t.unassigned_open, "open tickets", "warn" if t.unassigned_open else "") }}
+  {{ kpi("Closed", t.closed, "in period", "good") }}
+  {{ kpi("SLA compliance", t.sla_compliance|pct, "team, closed tickets") }}
+  {{ kpi("Hours logged", t.hours, t.working_days ~ " working days") }}
+</div>
+<div class="grid-2">
+  {{ chart_card("workloadChart", "Workload", "open vs closed per member", tall=True) }}
+  {{ chart_card("hoursChart", "Hours logged", "capacity " ~ t.capacity_per_member ~ "h per member", tall=True) }}
+</div>
+<div class="card">
+  <div class="card-head"><h3>Members</h3><span class="spacer"></span>{{ export_link("team", filters) }}</div>
+  <div class="table-wrap"><table class="table sortable">
+    <thead><tr><th>Member</th><th>Open</th><th>High prio</th><th>Overdue</th><th>SLA breached</th><th>At risk</th><th>Oldest open</th><th>Closed</th><th>Avg resolution</th><th>SLA %</th><th>Hours</th><th>Utilisation</th></tr></thead>
+    <tbody>
+    {% for m in data.members %}
+      <tr>
+        <td><strong>{{ m.name }}</strong></td><td>{{ m.open }}</td><td>{{ m.open_high }}</td>
+        <td class="{% if m.overdue %}danger{% endif %}">{{ m.overdue }}</td>
+        <td class="{% if m.breached_open %}danger{% endif %}">{{ m.breached_open }}</td>
+        <td class="{% if m.at_risk_open %}warning{% endif %}">{{ m.at_risk_open }}</td>
+        <td>{{ m.oldest_open_days }}d</td><td>{{ m.closed }}</td><td>{{ m.avg_resolution }}</td>
+        <td>{{ m.sla_compliance|pct }}</td><td>{{ m.hours }}</td>
+        <td><div class="bar-cell"><div class="bar-fill {% if (m.utilization or 0) > 100 %}bad{% endif %}" style="width: {{ [m.utilization or 0, 100]|min }}%"></div><span>{{ m.utilization|pct }}</span></div></td>
+      </tr>
+    {% else %}<tr><td colspan="12" class="empty">No team activity in this period.</td></tr>{% endfor %}
+    </tbody>
+  </table></div>
+  <p class="muted small">Utilisation = hours logged / (working days &times; {{ settings.team.capacity_hours_per_day }}h). Limit members with <code>team.members</code> in settings.yaml.</p>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+  const D = {{ data|tojson }};
+  Harness.hbarMulti("workloadChart", D.chart.labels, [
+    {label: "Open", data: D.chart.open}, {label: "Closed", data: D.chart.closed}
+  ]);
+  Harness.hbarMulti("hoursChart", D.chart.labels, [{label: "Hours", data: D.chart.hours}]);
+</script>
+{% endblock %}

@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% from "macros.html" import kpi, ticket_table, chart_card, export_link %}
+{% block title %}SLA{% endblock %}
+{% block heading %}SLA{% endblock %}
+{% block subheading %}{{ data.project }} &middot; {{ data.window.label }} &middot; {{ data.calendar.description }}{% endblock %}
+{% block content %}
+{% set k = data.kpis %}
+<div class="kpi-grid">
+  {{ kpi("Resolution compliance", k.resolution_compliance|pct, k.resolution_met ~ " met / " ~ k.resolution_judged ~ " closed", "good" if (k.resolution_compliance or 0) >= 90 else ("warn" if (k.resolution_compliance or 0) >= 75 else "bad")) }}
+  {{ kpi("First-response compliance", k.response_compliance|pct if k.first_response_tracked else "n/a", (k.response_judged ~ " tickets judged") if k.first_response_tracked else "enable sla.track_first_response") }}
+  {{ kpi("Breached (closed)", k.resolution_breached, "resolved late in period", "bad" if k.resolution_breached else "") }}
+  {{ kpi("Breached (open)", k.breached_open, "need attention now", "bad" if k.breached_open else "") }}
+  {{ kpi("At risk (open)", k.at_risk_open, "close to target", "warn" if k.at_risk_open else "") }}
+</div>
+
+<div class="grid-2">
+  {{ chart_card("complianceChart", "Compliance by priority", "% of closed tickets resolved within target") }}
+  {{ chart_card("openSlaChart", "Open tickets by SLA state", "per priority") }}
+</div>
+
+<div class="card">
+  <div class="card-head"><h3>Targets &amp; results by priority</h3><span class="spacer"></span>{{ export_link("sla", filters, "Export SLA CSV") }}</div>
+  <div class="table-wrap"><table class="table">
+    <thead><tr><th>Priority</th><th>Rule</th><th>Response target</th><th>Resolution target</th><th>Closed</th><th>Met</th><th>Breached</th><th>Compliance</th><th>Avg resolution (business)</th><th>Open</th><th>Open breached</th><th>Open at risk</th></tr></thead>
+    <tbody>
+    {% for r in data.by_priority %}
+      <tr>
+        <td><strong>{{ r.priority }}</strong></td><td class="muted">{{ r.rule }}</td>
+        <td>{{ r.response_target_hours|hours if r.response_target_hours is not none else '-' }}</td>
+        <td>{{ r.target_hours|hours if r.target_hours is not none else '-' }}</td>
+        <td>{{ r.closed }}</td><td>{{ r.met }}</td><td class="{% if r.breached %}danger{% endif %}">{{ r.breached }}</td>
+        <td><div class="bar-cell"><div class="bar-fill {% if (r.compliance or 0) < 75 %}bad{% elif (r.compliance or 0) < 90 %}warn{% endif %}" style="width: {{ r.compliance or 0 }}%"></div><span>{{ r.compliance|pct }}</span></div></td>
+        <td>{{ r.avg_resolution }}</td><td>{{ r.open }}</td>
+        <td class="{% if r.open_breached %}danger{% endif %}">{{ r.open_breached }}</td><td class="{% if r.open_at_risk %}warning{% endif %}">{{ r.open_at_risk }}</td>
+      </tr>
+    {% else %}<tr><td colspan="12" class="empty">No tickets in this period.</td></tr>{% endfor %}
+    </tbody>
+  </table></div>
+</div>
+
+<div class="card">
+  <div class="card-head"><h3>Open tickets breaching SLA</h3></div>
+  {{ ticket_table(data.breached_open, "No open SLA breaches.") }}
+</div>
+<div class="card">
+  <div class="card-head"><h3>Open tickets at risk</h3></div>
+  {{ ticket_table(data.at_risk_open, "Nothing at risk.") }}
+</div>
+<div class="card">
+  <div class="card-head"><h3>Closed late in this period</h3></div>
+  {{ ticket_table(data.breached_closed, "Every ticket closed in this period met its SLA.", show_due=False) }}
+</div>
+<div class="card">
+  <div class="card-head"><h3>SLA rules</h3><span class="muted small">first match wins &middot; edit <code>sla.rules</code> in settings.yaml &middot; at-risk threshold {{ (data.calendar.at_risk_ratio * 100)|round|int }}%</span></div>
+  <div class="table-wrap"><table class="table compact">
+    <thead><tr><th>Rule</th><th>Priority</th><th>Tracker</th><th>Project</th><th>First response</th><th>Resolution</th></tr></thead>
+    <tbody>{% for r in data.rules %}<tr><td>{{ r.rule }}</td><td>{{ r.priority or 'any' }}</td><td>{{ r.tracker or 'any' }}</td><td>{{ r.project or 'any' }}</td><td>{{ r.response_hours|hours if r.response_hours is not none else '-' }}</td><td>{{ r.resolution_hours|hours if r.resolution_hours is not none else '-' }}</td></tr>{% endfor %}</tbody>
+  </table></div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+  const D = {{ data|tojson }};
+  const rows = D.by_priority;
+  Harness.bar("complianceChart", rows.map(r => r.priority), [{label: "Compliance %", data: rows.map(r => r.compliance)}], {max: 100, percent: true, colorByValue: true});
+  Harness.stacked("openSlaChart", rows.map(r => r.priority), [
+    {label: "Breached", data: rows.map(r => r.open_breached), color: "#d92d20"},
+    {label: "At risk", data: rows.map(r => r.open_at_risk), color: "#f79009"},
+    {label: "On track", data: rows.map(r => r.open - r.open_breached - r.open_at_risk), color: "#12b76a"}
+  ]);
+</script>
+{% endblock %}

@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% from "macros.html" import kpi, chart_card %}
+{% block title %}Performance{% endblock %}
+{% block heading %}Performance{% endblock %}
+{% block subheading %}{{ data.project }} &middot; {{ data.window.label }}{% endblock %}
+{% block content %}
+{% set k = data.kpis %}
+<div class="kpi-grid">
+  {{ kpi("Throughput", k.throughput_per_day, "tickets closed per working day", "good") }}
+  {{ kpi("Backlog change", "%+d"|format(k.backlog_change), "created - closed", "bad" if k.backlog_change > 0 else "good") }}
+  {{ kpi("Avg resolution", k.avg_resolution, "median " ~ k.median_resolution) }}
+  {{ kpi("90th percentile", k.p90_resolution, "resolution time") }}
+  {{ kpi("Avg first response", k.avg_first_response, "business hours" if k.first_response_tracked else "not tracked") }}
+  {{ kpi("Reopened", k.reopened, (k.reopen_rate|pct ~ " of closed") if k.reopen_rate is not none else "", "warn" if k.reopened else "") }}
+  {{ kpi("Estimate accuracy", k.estimate_within_20pct|pct, "within &plusmn;20% (" ~ k.estimate_samples ~ " tickets)") }}
+  {{ kpi("Spent / estimate", k.spent_vs_estimate_ratio if k.spent_vs_estimate_ratio is not none else "-", "1.0 = on estimate") }}
+</div>
+<div class="grid-2">
+  {{ chart_card("weeklyChart", "Weekly throughput", "created vs closed") }}
+  {{ chart_card("resolutionTrendChart", "Weekly avg resolution & SLA", "hours / compliance %") }}
+</div>
+<div class="grid-2">
+  {{ chart_card("distChart", "Resolution time distribution", "closed in period") }}
+  {{ chart_card("closersChart", "Top closers", "by assignee") }}
+</div>
+<div class="grid-2">
+  <div class="card">
+    <div class="card-head"><h3>By tracker</h3></div>
+    <div class="table-wrap"><table class="table compact"><thead><tr><th>Tracker</th><th>Closed</th><th>Avg</th><th>Median (h)</th></tr></thead>
+    <tbody>{% for r in data.by_tracker %}<tr><td>{{ r.label }}</td><td>{{ r.closed }}</td><td>{{ r.avg }}</td><td>{{ r.median_hours }}</td></tr>{% else %}<tr><td colspan="4" class="empty">No closed tickets.</td></tr>{% endfor %}</tbody></table></div>
+  </div>
+  <div class="card">
+    <div class="card-head"><h3>By priority</h3></div>
+    <div class="table-wrap"><table class="table compact"><thead><tr><th>Priority</th><th>Closed</th><th>Avg</th><th>Median (h)</th></tr></thead>
+    <tbody>{% for r in data.by_priority %}<tr><td>{{ r.label }}</td><td>{{ r.closed }}</td><td>{{ r.avg }}</td><td>{{ r.median_hours }}</td></tr>{% else %}<tr><td colspan="4" class="empty">No closed tickets.</td></tr>{% endfor %}</tbody></table></div>
+  </div>
+</div>
+<div class="card">
+  <div class="card-head"><h3>By project</h3></div>
+  <div class="table-wrap"><table class="table compact"><thead><tr><th>Project</th><th>Closed</th><th>Avg</th><th>Median (h)</th></tr></thead>
+  <tbody>{% for r in data.by_project %}<tr><td>{{ r.label }}</td><td>{{ r.closed }}</td><td>{{ r.avg }}</td><td>{{ r.median_hours }}</td></tr>{% else %}<tr><td colspan="4" class="empty">No closed tickets.</td></tr>{% endfor %}</tbody></table></div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+  const D = {{ data|tojson }};
+  Harness.bar("weeklyChart", D.weekly.labels, [{label: "Created", data: D.weekly.created}, {label: "Closed", data: D.weekly.closed}]);
+  Harness.combo("resolutionTrendChart", D.weekly.labels, {label: "Avg resolution (h)", data: D.weekly.avg_resolution_hours}, {label: "SLA compliance %", data: D.weekly.sla_compliance});
+  Harness.bar("distChart", D.resolution_distribution.map(x => x.label), [{label: "Tickets", data: D.resolution_distribution.map(x => x.value)}]);
+  Harness.hbar("closersChart", D.top_closers);
+</script>
+{% endblock %}

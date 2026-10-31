@@ -1,0 +1,153 @@
+# Starter closure templates.
+#
+# On first use these are copied to `data/closure_templates.yaml` (see `closure.templates_file`),
+# which the dashboard / CLI then edit. Point `closure.templates_file` at a shared location if your
+# team wants one common template library.
+#
+# Template fields
+#   id              unique slug (lowercase, digits, dashes)
+#   name            display name
+#   target_status   Redmine status name (or id) to move the ticket to
+#   done_ratio      % Done to set (0-100), or omit / "keep" to leave unchanged
+#   private_note    true to post the closing note as a private note
+#   custom_fields   { "<field name or id>": value } set on closure, e.g. Resolution: Fixed
+#   variables       values the reviewer fills in; `required: true` blocks drafting until provided
+#   applies_to      suggest this template for these trackers / projects
+#   note            the closing comment (Jinja2, sandboxed). Built-ins: issue.*, me.*, today, now
+templates:
+  - id: standard-resolution
+    name: Standard resolution
+    description: General-purpose closure once the requester has confirmed the fix.
+    target_status: Closed
+    done_ratio: 100
+    variables:
+      - name: resolution
+        label: Resolution summary
+        default: The reported issue has been resolved.
+    note: |
+      Hello {{ issue.author }},
+
+      Ticket #{{ issue.id }} "{{ issue.subject }}" is now closed.
+
+      Resolution: {{ resolution }}
+
+      If the problem comes back, simply reply on this ticket within 7 days and we will reopen it.
+
+      Regards,
+      {{ me.name }}
+
+  - id: bug-fixed
+    name: Bug fixed and deployed
+    description: Defect fixed, deployed and verified.
+    target_status: Closed
+    done_ratio: 100
+    custom_fields:
+      Resolution: Fixed
+    applies_to:
+      trackers: [Bug]
+    variables:
+      - name: fix_summary
+        label: What was fixed
+        default: The defect has been fixed and verified.
+      - name: release
+        label: Release / deployment reference
+        default: the latest production release
+    note: |
+      Hi {{ issue.author }},
+
+      The bug reported in #{{ issue.id }} ("{{ issue.subject }}") has been fixed.
+
+      * Fix: {{ fix_summary }}
+      * Deployed in: {{ release }}
+      * Closed on: {{ today }}
+
+      Please reopen this ticket if you still see the problem.
+
+      Thanks,
+      {{ me.name }}
+
+  - id: support-resolved
+    name: Support request completed
+    description: Service request fulfilled (access, install, configuration...).
+    target_status: Closed
+    done_ratio: 100
+    custom_fields:
+      Resolution: Answered
+    applies_to:
+      trackers: [Support]
+    variables:
+      - name: action_taken
+        label: Action taken
+        default: Your request has been completed.
+    note: |
+      Hello {{ issue.author }},
+
+      Your request #{{ issue.id }} "{{ issue.subject }}" has been completed.
+
+      Action taken: {{ action_taken }}
+
+      We are closing this ticket. Raise a new request if you need anything else.
+
+      Regards,
+      {{ me.name }} - {{ issue.project }}
+
+  - id: incident-resolved
+    name: Incident resolved (with root cause)
+    description: Major/minor incident resolved; captures root cause and prevention.
+    target_status: Closed
+    done_ratio: 100
+    custom_fields:
+      Resolution: Fixed
+    applies_to:
+      trackers: [Incident]
+    variables:
+      - name: root_cause
+        label: Root cause
+        required: true
+      - name: prevention
+        label: Preventive action
+        default: Monitoring has been added to detect this earlier.
+    note: |
+      Incident #{{ issue.id }} "{{ issue.subject }}" is resolved.
+
+      Root cause: {{ root_cause }}
+      Preventive action: {{ prevention }}
+      Priority: {{ issue.priority }} | Time spent: {{ issue.spent_hours }}h
+
+      Closed by {{ me.name }} on {{ now }}.
+
+  - id: no-response
+    name: Closed - no response from requester
+    description: Requester did not respond to follow-ups.
+    target_status: Closed
+    done_ratio: keep
+    variables:
+      - name: follow_ups
+        label: Number of follow-ups sent
+        default: "2"
+    note: |
+      Hello {{ issue.author }},
+
+      We have not heard back after {{ follow_ups }} follow-up(s) on #{{ issue.id }} "{{ issue.subject }}",
+      so we are closing this ticket for now.
+
+      If you still need help, reply here and we will reopen it.
+
+      Regards,
+      {{ me.name }}
+
+  - id: duplicate
+    name: Duplicate ticket
+    description: Ticket duplicates another ticket.
+    target_status: Rejected
+    done_ratio: keep
+    custom_fields:
+      Resolution: Duplicate
+    variables:
+      - name: original_ticket
+        label: Original ticket number
+        required: true
+    note: |
+      This ticket duplicates #{{ original_ticket }}. Please follow that ticket for updates.
+
+      Closed by {{ me.name }}.

@@ -1,0 +1,57 @@
+{% macro kpi(label, value, hint="", tone="") -%}
+<div class="kpi {{ tone }}">
+  <div class="kpi-label">{{ label }}</div>
+  <div class="kpi-value">{{ value }}</div>
+  {% if hint %}<div class="kpi-hint">{{ hint }}</div>{% endif %}
+</div>
+{%- endmacro %}
+
+{% macro sla_badge(state, label) -%}
+<span class="badge sla-{{ state|replace('/', '') }}">{{ label }}</span>
+{%- endmacro %}
+
+{% macro prio(name, high) -%}
+<span class="prio {% if high %}high{% endif %}">{{ name }}</span>
+{%- endmacro %}
+
+{% macro ticket_table(rows, empty="Nothing here.", show_sla=True, show_due=True, extra=None) -%}
+<div class="table-wrap">
+<table class="table">
+  <thead><tr>
+    <th>#</th><th>Subject</th><th>Project</th><th>Status</th><th>Priority</th><th>Assignee</th><th>Age</th>
+    {% if show_due %}<th>Due</th>{% endif %}
+    {% if show_sla %}<th>SLA</th>{% endif %}
+  </tr></thead>
+  <tbody>
+  {% for r in rows %}
+    <tr>
+      <td><a href="{{ r.url }}" target="_blank" rel="noopener" class="tid">#{{ r.id }}</a></td>
+      <td class="subject">{{ r.subject }}<div class="muted small">{{ r.tracker }}</div></td>
+      <td>{{ r.project }}</td>
+      <td>{{ r.status }}</td>
+      <td>{{ prio(r.priority, r.high_priority) }}</td>
+      <td>{{ r.assigned_to }}</td>
+      <td class="nowrap">{{ r.age }}</td>
+      {% if show_due %}<td class="nowrap {% if r.overdue %}danger{% endif %}">{{ r.due_date or '-' }}</td>{% endif %}
+      {% if show_sla %}<td class="nowrap">{{ sla_badge(r.sla_state, r.sla_label) }}
+        {% if r.sla_consumed_pct is not none and not r.is_closed %}<div class="meter"><span style="width: {{ [r.sla_consumed_pct, 100]|min }}%" class="{{ r.sla_state }}"></span></div>{% endif %}
+        {% if r.sla_due and not r.is_closed %}<div class="muted small">due {{ r.sla_due }}</div>{% endif %}</td>{% endif %}
+    </tr>
+  {% else %}
+    <tr><td colspan="9" class="empty">{{ empty }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{%- endmacro %}
+
+{% macro chart_card(id, title, subtitle="", tall=False) -%}
+<div class="card">
+  <div class="card-head"><h3>{{ title }}</h3>{% if subtitle %}<span class="muted small">{{ subtitle }}</span>{% endif %}</div>
+  <div class="chart-box {% if tall %}tall{% endif %}"><canvas id="{{ id }}"></canvas></div>
+</div>
+{%- endmacro %}
+
+{% macro export_link(kind, filters, label="Export CSV") -%}
+<a class="btn ghost small" href="/export/{{ kind }}.csv?days={{ filters.days }}&from={{ filters['from'] }}&to={{ filters['to'] }}&project={{ filters.project }}">{{ label }}</a>
+{%- endmacro %}

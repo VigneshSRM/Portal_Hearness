@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% from "macros.html" import kpi, sla_badge, prio %}
+{% block title %}My tickets{% endblock %}
+{% block heading %}My tickets{% endblock %}
+{% block subheading %}Assigned to {{ me.firstname }} {{ me.lastname }} &middot; sorted by urgency (SLA, then priority){% endblock %}
+{% block filters %}
+<form class="filters" method="get">
+  <div class="tabs">
+    {% for s, label in [("open", "Open"), ("closed", "Closed"), ("all", "All")] %}
+    <a class="tab {% if status == s %}active{% endif %}" href="?status={{ s }}&project={{ filters.project }}">{{ label }}</a>
+    {% endfor %}
+  </div>
+  <input type="hidden" name="status" value="{{ status }}">
+  <label>Project
+    <select name="project" onchange="this.form.submit()">
+      <option value="">All projects</option>
+      {% for p in projects %}<option value="{{ p.identifier or p.id }}" {% if filters.project in [p.identifier, p.id|string] %}selected{% endif %}>{{ p.name }}</option>{% endfor %}
+    </select>
+  </label>
+  <a class="btn ghost" href="/export/my-tickets.csv">Export CSV</a>
+  <button class="btn ghost" type="button" title="Reload data from Redmine" onclick="Harness.refresh()">&#8635;</button>
+</form>
+{% endblock %}
+{% block content %}
+{% set k = data.kpis %}
+<div class="kpi-grid">
+  {{ kpi("Open", k.open) }}
+  {{ kpi("SLA breached", k.breached, "", "bad" if k.breached else "") }}
+  {{ kpi("At risk", k.at_risk, "", "warn" if k.at_risk else "") }}
+  {{ kpi("Overdue", k.overdue, "", "bad" if k.overdue else "") }}
+  {{ kpi("High priority", k.high_priority) }}
+</div>
+<div class="card">
+  <div class="card-head"><h3>{{ data.rows|length }} ticket(s)</h3>
+    <input class="search" type="search" placeholder="Filter by text..." oninput="Harness.filterTable(this, 'myTable')">
+  </div>
+  <div class="table-wrap">
+  <table class="table" id="myTable">
+    <thead><tr><th>#</th><th>Subject</th><th>Project</th><th>Status</th><th>Priority</th><th>Updated</th><th>Age</th><th>Due</th><th>SLA</th><th></th></tr></thead>
+    <tbody>
+    {% for r in data.rows %}
+      <tr>
+        <td><a class="tid" href="{{ r.url }}" target="_blank" rel="noopener">#{{ r.id }}</a></td>
+        <td class="subject">{{ r.subject }}<div class="muted small">{{ r.tracker }} &middot; {{ r.done_ratio }}% done</div></td>
+        <td>{{ r.project }}</td><td>{{ r.status }}</td><td>{{ prio(r.priority, r.high_priority) }}</td>
+        <td class="nowrap">{{ r.updated_on }}</td><td class="nowrap">{{ r.age }}</td>
+        <td class="nowrap {% if r.overdue %}danger{% endif %}">{{ r.due_date or '-' }}</td>
+        <td class="nowrap">{{ sla_badge(r.sla_state, r.sla_label) }}{% if r.sla_due and not r.is_closed %}<div class="muted small">due {{ r.sla_due }}</div>{% endif %}</td>
+        <td class="nowrap">
+          {% if r.is_closed %}<span class="muted small">closed</span>
+          {% elif busy.get(r.id) %}<a class="btn ghost small" href="/approvals#p-{{ busy[r.id] }}">In review</a>
+          {% else %}<button class="btn small" data-subject="{{ r.subject }}" onclick="Harness.openDraft({{ r.id }}, this.dataset.subject)">Draft closure</button>{% endif %}
+        </td>
+      </tr>
+    {% else %}<tr><td colspan="10" class="empty">No tickets assigned to you.</td></tr>{% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+{% include "_draft_dialog.html" %}
+{% endblock %}
+{% block scripts %}<script>Harness.templates = {{ templates_list|tojson }};</script>{% endblock %}
