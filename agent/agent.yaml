@@ -21,10 +21,28 @@ connectivity:
   minimum_redmine_version: "4.1"     # 5.0+ recommended (include=allowed_statuses, journals)
 
 runtimes:
-  chat: python -m redmine_agent chat          # any OpenAI-compatible LLM, approval prompts in the terminal
-  mcp: python -m redmine_agent mcp            # Claude Desktop/Code, VS Code, Cursor... (see .mcp.json)
-  dashboard: python -m redmine_agent dashboard
-  scheduler: python -m redmine_agent schedule
+  skills: your AI terminal (Claude Code, Codex CLI, Gemini CLI, Copilot CLI) + `python harness.py`
+  chat: python harness.py chat                # built-in agent; any OpenAI-compatible LLM API key
+  mcp: python harness.py mcp                  # Claude Desktop/Code, VS Code, Cursor... (see .mcp.json)
+  dashboard: python harness.py dashboard
+  scheduler: python harness.py schedule
+
+skills:
+  # Agent Skills (https://agentskills.io) that teach terminal AI agents to operate the harness.
+  # tests/test_skills.py checks this list against the folders.
+  format: SKILL.md (Agent Skills open standard)
+  source: .agents/skills        # Codex CLI, Gemini CLI, GitHub Copilot CLI, Cursor, OpenCode
+  mirrors: [.claude/skills]     # Claude Code (python harness.py skills sync)
+  permissions: .claude/settings.json allows read-only commands, asks before drafts/e-mail, denies approvals
+  list:
+    - redmine-setup
+    - redmine-my-tickets
+    - redmine-dashboards
+    - redmine-reports
+    - redmine-daily-overview
+    - redmine-closure-templates
+    - redmine-ticket-closure
+    - redmine-rest-api
 
 capabilities:
   - id: daily-overview-email
@@ -49,6 +67,10 @@ restrictions:
       - redmine_agent/approvals.py    # only humans can approve; stale tickets are re-reviewed; results verified
   - id: no-self-approval
     rule: The agent has no tool to approve proposals. Approval happens in the dashboard or an interactive CLI.
+  - id: approver-pin
+    rule: With registered approvers, every approval needs the approver's PIN, which agents never see or ask for.
+    enforced_by:
+      - redmine_agent/approvers.py
   - id: read-only-switch
     rule: REDMINE_READ_ONLY=true blocks every write, even approved ones.
   - id: no-deletes

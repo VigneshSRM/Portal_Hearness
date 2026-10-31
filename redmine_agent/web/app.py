@@ -247,7 +247,7 @@ def create_app(settings: Settings | None = None, *, harness: Any = None) -> Fast
                    h.workflow.list(["executed", "rejected", "failed", "stale", "cancelled"])[:50]]
         return page(request, "approvals.html", "approvals", groups=groups, history=history,
                     templates_list=[t.to_dict() for t in h.templates.list()], statuses=h.data.statuses(),
-                    closure=settings.closure)
+                    closure=settings.closure, pin_required=h.workflow.pin_required)
 
     @app.get("/audit", response_class=HTMLResponse)
     def audit_page(request: Request):
@@ -439,11 +439,12 @@ def create_app(settings: Settings | None = None, *, harness: Any = None) -> Fast
     async def api_approve(proposal_id: str, request: Request):
         body = await request.json() if await request.body() else {}
         actor = reviewer(request)
+        pin = body.get("pin") or request.headers.get("x-harness-pin") or None
         wf = get_harness().workflow
         if body.get("execute", True):
-            p = wf.approve_and_execute(proposal_id, reviewer=actor, comment=body.get("comment", ""))
+            p = wf.approve_and_execute(proposal_id, reviewer=actor, comment=body.get("comment", ""), pin=pin)
         else:
-            p = wf.approve(proposal_id, reviewer=actor, comment=body.get("comment", ""))
+            p = wf.approve(proposal_id, reviewer=actor, comment=body.get("comment", ""), pin=pin)
         return proposal_view(p)
 
     @app.post("/api/proposals/{proposal_id}/execute")
@@ -478,7 +479,8 @@ def create_app(settings: Settings | None = None, *, harness: Any = None) -> Fast
         h = get_harness()
         me = h.data.current_user()
         return {"version": __version__, "redmine_url": h.client.web_url, "user": me.get("login"),
-                "read_only": h.read_only, "pending": h.store.count_proposals("pending"),
+                "read_only": h.read_only, "pin_required": h.workflow.pin_required,
+                "pending": h.store.count_proposals("pending"),
                 "approved": h.store.count_proposals("approved"), "time": fmt_dt(utcnow(), settings.tz)}
 
     return app

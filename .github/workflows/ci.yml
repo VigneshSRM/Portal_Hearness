@@ -26,4 +26,6 @@ jobs:
       - name: Test (against the built-in mock Redmine)
         run: pytest -q
       - name: CLI smoke test
-        run: python -m redmine_agent --help
+        run: python harness.py --help
+      - name: Agent skills (Agent Skills spec + .claude mirror in sync)
+        run: python harness.py skills validate

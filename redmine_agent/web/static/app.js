@@ -16,6 +16,7 @@
   const H = {
     templates: [],
     authUser: "",
+    pinRequired: false,
     reportColumns: {},
     reportPresets: {},
 
@@ -47,8 +48,8 @@
       }
       return r;
     },
-    async api(method, url, body) {
-      const headers = { "X-Harness-Request": "1", "Accept": "application/json" };
+    async api(method, url, body, extraHeaders) {
+      const headers = Object.assign({ "X-Harness-Request": "1", "Accept": "application/json" }, extraHeaders || {});
       const reviewer = H.getReviewer();
       if (reviewer) headers["X-Harness-Reviewer"] = reviewer;
       if (body !== undefined) headers["Content-Type"] = "application/json";
@@ -182,9 +183,16 @@
         if (!confirm("You edited this proposal. Save the edits first, then approve?")) return;
         if (!(await H.saveProposal(pid, true))) return;
       }
+      const pinInput = $("#reviewerPin");
+      const pin = pinInput ? pinInput.value : "";
+      if (H.pinRequired && !pin) {
+        H.toast("Enter your approver PIN first (top right).", true);
+        if (pinInput) pinInput.focus();
+        return;
+      }
       if (!confirm(`Approve as "${H.getReviewer()}" and close ticket #${issueId} in Redmine now?`)) return;
       try {
-        const p = await H.api("POST", `/api/proposals/${pid}/approve`, { execute: true });
+        const p = await H.api("POST", `/api/proposals/${pid}/approve`, { execute: true }, pin ? { "X-Harness-Pin": pin } : {});
         H.toast(`#${p.issue_id}: ${(p.result && p.result.message) || p.status}`);
         setTimeout(() => location.reload(), 1100);
       } catch (e) { H.toast(e.message, true); setTimeout(() => location.reload(), 2500); }

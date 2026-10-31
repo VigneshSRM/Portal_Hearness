@@ -448,6 +448,36 @@ def build_dataset(now: datetime | None = None, *, seed: int = 42, n_issues: int 
         issues[next_id] = issue
         next_id += 1
 
+    # Always include a brand-new, unanswered ticket (status New) - whatever the time of day.
+    project = next(p for p in PROJECTS if p["name"] == "IT Service Desk")
+    created = now - timedelta(minutes=25)
+    issues[next_id] = {
+        "id": next_id,
+        "project": {"id": project["id"], "name": project["name"]},
+        "tracker": _ref(TRACKERS, 3),
+        "status": {"id": 1, "name": "New", "is_closed": False},
+        "priority": _ref(PRIORITIES, 3),
+        "author": user_ref(9),
+        "assigned_to": user_ref(ME),
+        "subject": "Cannot print payslips from the HR portal",
+        "description": "Printing from the HR portal fails with 'spooler error' since this morning.",
+        "start_date": created.astimezone(LOCAL_TZ).date().isoformat(),
+        "due_date": None,
+        "done_ratio": 0,
+        "is_private": False,
+        "estimated_hours": None,
+        "spent_hours": 0.0,
+        "total_spent_hours": 0.0,
+        "custom_fields": [{"id": 1, "name": "Resolution", "value": ""},
+                          {"id": 2, "name": "Customer", "value": ""}],
+        "created_on": iso(created),
+        "updated_on": iso(created),
+        "closed_on": None,
+        "journals": [],
+        "watchers": [],
+    }
+    next_id += 1
+
     memberships = []
     mid = 1
     for project in PROJECTS:

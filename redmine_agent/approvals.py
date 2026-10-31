@@ -38,6 +38,7 @@ from .errors import (
     ValidationError,
     WorkflowError,
 )
+from .approvers import ApproverRegistry
 from .guard import Approval, is_human_actor, payload_digest
 from .models import Issue
 from .store import HarnessStore, now_iso
@@ -96,13 +97,20 @@ class ClosureWorkflow:
         store: HarnessStore,
         templates: TemplateStore,
         settings: Settings,
+        approvers: ApproverRegistry | None = None,
     ) -> None:
         self.client = client
         self.data = data
         self.store = store
         self.templates = templates
         self.settings = settings
+        self.approvers = approvers
         self.cfg = settings.closure
+
+    @property
+    def pin_required(self) -> bool:
+        """True when approvers are registered: every approval then needs a valid PIN."""
+        return bool(self.approvers and self.approvers.configured)
 
     # ------------------------------------------------------------------ guard hook
     def verify_approval(self, approval: Approval) -> None:
@@ -363,7 +371,8 @@ class ClosureWorkflow:
         return p
 
     # ------------------------------------------------------------------ review
-    def approve(self, proposal_id: str, *, reviewer: str, comment: str = "") -> dict[str, Any]:
+    def approve(self, proposal_id: str, *, reviewer: str, comment: str = "", pin: str | None = None
+                ) -> dict[str, Any]:
         if not is_human_actor(reviewer):
             raise PermissionDenied(
                 f"'{reviewer or 'unknown'}' cannot approve changes - approval must come from a person."
@@ -371,11 +380,14 @@ class ClosureWorkflow:
         p = self.get(proposal_id)
         if p["status"] != "pending":
             raise WorkflowError(f"Proposal {proposal_id} is '{p['status']}'; only pending proposals can be approved.")
+        if self.pin_required:
+            reviewer = self.approvers.verify(reviewer, pin)  # type: ignore[union-attr]
         p.update({
             "status": "approved",
             "reviewed_by": reviewer.strip(),
             "reviewed_at": now_iso(),
             "review_comment": comment,
+            "pin_verified": self.pin_required,
             "approved_digest": payload_digest(self._wire_payload(p["changes"])),
         })
         p["history"].append({"ts": now_iso(), "actor": reviewer, "event": "approved", "comment": comment})
@@ -471,9 +483,10 @@ class ClosureWorkflow:
         self.data.clear_cache()
         return p
 
-    def approve_and_execute(self, proposal_id: str, *, reviewer: str, comment: str = "") -> dict[str, Any]:
-        self.approve(proposal_id, reviewer=reviewer, comment=comment)
-        return self.execute(proposal_id, actor=reviewer)
+    def approve_and_execute(self, proposal_id: str, *, reviewer: str, comment: str = "",
+                            pin: str | None = None) -> dict[str, Any]:
+        approved = self.approve(proposal_id, reviewer=reviewer, comment=comment, pin=pin)
+        return self.execute(proposal_id, actor=approved["reviewed_by"])
 
     def execute_all_approved(self, *, actor: str) -> dict[str, list[dict[str, Any]]]:
         done, failed = [], []

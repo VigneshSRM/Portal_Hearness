@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import json
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -33,6 +34,7 @@ class ApprovalDecision:
     approved: bool
     reviewer: str = ""
     comment: str = ""
+    pin: str | None = None  # approver PIN (typed by the person, never shown to the LLM)
 
 
 Approver = Callable[[ApprovalRequest], ApprovalDecision]
@@ -112,10 +114,12 @@ class Toolset:
                             "changed. Do not retry unless the user asks.", "comment": decision.comment}
                 reviewer = decision.reviewer
                 args["_reviewer"] = reviewer
+                if "_pin" in inspect.signature(tool.handler).parameters:
+                    args["_pin"] = decision.pin
             result = tool.handler(**args)
             if tool.level == "write":
                 self.h.store.audit(actor=reviewer, action=f"agent.approved:{name}", target=json.dumps(
-                    {k: v for k, v in args.items() if k != "_reviewer"})[:200])
+                    {k: v for k, v in args.items() if not k.startswith("_")})[:200])
             return result
         except PermissionDenied as exc:
             return {"error": f"Permission denied: {exc}"}
@@ -242,11 +246,30 @@ class Toolset:
         if issue.journals:
             row["recent_history"] = [
                 {"by": j.user, "at": fmt_dt(j.created_on, self.h.settings.tz), "note": j.notes[:500],
-                 "changes": [f"{d.name}: {d.old_value} -> {d.new_value}" for d in j.details]}
-                for j in issue.journals[-8:]
+                 "private": j.private_notes, "changes": [self._describe_detail(d) for d in j.details]}
+                for j in issue.journals[-10:]
             ]
         row["open_proposals"] = [p["id"] for p in self.h.workflow.list(["pending", "approved"], issue.id)]
         return row
+
+    def _describe_detail(self, d: Any) -> str:
+        """Human-readable journal detail, e.g. 'Status: In Progress -> Resolved'."""
+        lookups = {
+            "status_id": ("Status", self.h.data.statuses),
+            "priority_id": ("Priority", self.h.data.priorities),
+            "tracker_id": ("Tracker", self.h.data.trackers),
+        }
+        if d.property == "attr" and d.name in lookups:
+            label, source = lookups[d.name]
+            names = {str(x["id"]): x["name"] for x in source()}
+            return f"{label}: {names.get(str(d.old_value), d.old_value or '-')} -> {names.get(str(d.new_value), d.new_value or '-')}"
+        if d.property == "cf":
+            return f"Custom field {d.name}: {d.old_value or '-'} -> {d.new_value or '-'}"
+        label = {"done_ratio": "% Done", "assigned_to_id": "Assignee (user id)", "due_date": "Due date",
+                 "subject": "Subject", "description": "Description"}.get(d.name, d.name)
+        if d.name == "description":
+            return "Description changed"
+        return f"{label}: {d.old_value if d.old_value not in (None, '') else '-'} -> {d.new_value if d.new_value not in (None, '') else '-'}"
 
     def search_tickets(self, status: str = "open", project: str | None = None, assigned_to: str | None = None,
                        text: str | None = None, created_from: str | None = None, created_to: str | None = None,
@@ -367,10 +390,12 @@ class Toolset:
             lines.append(f"(proposal status: {p['status']})")
         return "\n".join(lines)
 
-    def close_ticket(self, proposal_id: str, _reviewer: str = "") -> dict[str, Any]:
+    def close_ticket(self, proposal_id: str, _reviewer: str = "", _pin: str | None = None) -> dict[str, Any]:
         p = self.h.workflow.get(proposal_id)
         if p["status"] == "pending":
-            self.h.workflow.approve(proposal_id, reviewer=_reviewer, comment="approved in agent chat")
+            approved = self.h.workflow.approve(proposal_id, reviewer=_reviewer, comment="approved in agent chat",
+                                               pin=_pin)
+            _reviewer = approved["reviewed_by"]
         result = self.h.workflow.execute(proposal_id, actor=_reviewer)
         return {"proposal_id": result["id"], "status": result["status"], "issue_id": result["issue_id"],
                 "result": result.get("result"), "approved_by": result.get("reviewed_by")}

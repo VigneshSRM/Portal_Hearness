@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .approvals import ClosureWorkflow
+from .approvers import ApproverRegistry
 from .client import RedmineClient
 from .closure_templates import TemplateStore
 from .config import Settings, load_settings
@@ -21,6 +22,7 @@ class Harness:
     data: DataService
     templates: TemplateStore
     workflow: ClosureWorkflow
+    approvers: ApproverRegistry
 
     @classmethod
     def create(cls, settings: Settings | None = None, *, client: RedmineClient | None = None) -> "Harness":
@@ -37,11 +39,12 @@ class Harness:
             settings.path(settings.closure.templates_file),
             settings.path(seed) if seed else None,
         )
-        workflow = ClosureWorkflow(client, data, store, templates, settings)
+        approvers = ApproverRegistry(settings.data_path / "approvers.json", audit=store.audit)
+        workflow = ClosureWorkflow(client, data, store, templates, settings, approvers)
         # Every Redmine write must be backed by a human-approved proposal in the store.
         guard.verifier = workflow.verify_approval
         return cls(settings=settings, client=client, store=store, data=data, templates=templates,
-                   workflow=workflow)
+                   workflow=workflow, approvers=approvers)
 
     @property
     def read_only(self) -> bool:

@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+import yaml
 
 from redmine_agent.config import load_settings
 from redmine_agent.harness import Harness
@@ -62,3 +63,17 @@ def resolved_candidate_ids(app_state, include_incident: bool = False) -> list[in
         subjects.add("Nightly backup job failed on db-02")
     return sorted(i["id"] for i in app_state.issues.values()
                   if i["status"]["id"] == 3 and i.get("assigned_to", {}).get("id") == 2 and i["subject"] in subjects)
+
+
+@pytest.fixture()
+def cli_env(tmp_path, mock, monkeypatch):
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "settings.yaml").write_text(yaml.safe_dump({
+        "redmine": {"url": mock["url"], "api_key": "demo-api-key", "max_retries": 0},
+        "closure": {"seed_templates_file": SEED_TEMPLATES},
+    }), encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("REDMINE_AGENT_HOME", str(tmp_path))
+    for var in ("REDMINE_URL", "REDMINE_API_KEY", "REDMINE_READ_ONLY", "REDMINE_AGENT_CONFIG"):
+        monkeypatch.delenv(var, raising=False)
+    return tmp_path

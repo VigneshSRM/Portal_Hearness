@@ -12,6 +12,7 @@ ticketing system. It connects through the official
 | 🙋 List the **tickets assigned to me**, sorted by urgency and SLA | ❌ Write anything when `REDMINE_READ_ONLY=true` |
 | 📝 Manage **closure templates** (variables, target status, % done, custom fields) | |
 | ✅ **Automate ticket closing**: find candidates, draft, **you review and approve**, execute, verify | |
+| 🤖 Run from **your AI terminal subscription** (Claude Code, Codex CLI, Gemini CLI, Copilot CLI) through **agent skills** | |
 
 ---
 
@@ -25,15 +26,15 @@ git clone https://github.com/VigneshSRM/Portal_Hearness.git && cd Portal_Hearnes
 python -m venv .venv && source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 
-python -m redmine_agent mock-server --port 3000            # terminal 1
+python harness.py mock-server --port 3000            # terminal 1
 ```
 
 ```bash
 # terminal 2  (Windows PowerShell: $env:REDMINE_URL="http://127.0.0.1:3000"; $env:REDMINE_API_KEY="demo-api-key")
 export REDMINE_URL=http://127.0.0.1:3000 REDMINE_API_KEY=demo-api-key
-python -m redmine_agent check          # connectivity report
-python -m redmine_agent my-tickets     # tickets assigned to me
-python -m redmine_agent dashboard      # http://localhost:8000
+python harness.py check          # connectivity report
+python harness.py my-tickets     # tickets assigned to me
+python harness.py dashboard      # http://localhost:8000
 ```
 
 ## Connect it to your Redmine
@@ -44,7 +45,7 @@ python -m redmine_agent dashboard      # http://localhost:8000
 3. **Configure the harness:**
 
    ```bash
-   python -m redmine_agent init      # creates .env and config/settings.yaml from the examples
+   python harness.py init      # creates .env and config/settings.yaml from the examples
    ```
 
    Edit `.env`:
@@ -60,7 +61,7 @@ python -m redmine_agent dashboard      # http://localhost:8000
    DAILY_RECIPIENTS=you@your-company.com,lead@your-company.com
    ```
 
-4. **Verify** with `python -m redmine_agent check`. It shows your user, statuses, trackers,
+4. **Verify** with `python harness.py check`. It shows your user, statuses, trackers,
    projects and access to time tracking.
 5. **Tune** `config/settings.yaml`: SLA rules and business hours, holidays, team members, closure
    rules and report presets. Every option is commented.
@@ -72,9 +73,9 @@ python -m redmine_agent dashboard      # http://localhost:8000
 ### 1. Daily overview e-mail
 
 ```bash
-python -m redmine_agent daily-overview              # preview -> data/outbox/daily-overview-*.html
-python -m redmine_agent daily-overview --send       # send now via SMTP
-python -m redmine_agent schedule                    # every weekday at email.send_time (default 09:00 IST)
+python harness.py daily-overview              # preview -> data/outbox/daily-overview-*.html
+python harness.py daily-overview --send       # send now via SMTP
+python harness.py schedule                    # every weekday at email.send_time (default 09:00 IST)
 ```
 
 The e-mail contains:
@@ -93,7 +94,7 @@ Scheduler and Docker setups, see [docs/scheduling.md](docs/scheduling.md).
 ### 2. Dashboards: overview, SLA, team, performance, time spent
 
 ```bash
-python -m redmine_agent dashboard      # http://localhost:8000
+python harness.py dashboard      # http://localhost:8000
 ```
 
 | Page | What you get |
@@ -118,11 +119,11 @@ numbers are available from the terminal with `overview`, `sla`, `team`, `perform
 You can build reports in the dashboard (*Reports & CSV*) or on the command line:
 
 ```bash
-python -m redmine_agent export --list-columns --dataset issues
-python -m redmine_agent export --dataset sla --days 7 --date-field closed_on --status closed
-python -m redmine_agent export --dataset issues --date-field open_now --status open --group-by assigned_to,priority
-python -m redmine_agent export --dataset time_entries --from 2026-10-01 --to 2026-10-31 --group-by user,project
-python -m redmine_agent export --preset weekly-sla --out weekly.csv
+python harness.py export --list-columns --dataset issues
+python harness.py export --dataset sla --days 7 --date-field closed_on --status closed
+python harness.py export --dataset issues --date-field open_now --status open --group-by assigned_to,priority
+python harness.py export --dataset time_entries --from 2026-10-01 --to 2026-10-31 --group-by user,project
+python harness.py export --preset weekly-sla --out weekly.csv
 ```
 
 - **Datasets:** `issues`, `sla` (tickets with SLA details), `time_entries`, `team`.
@@ -135,8 +136,8 @@ python -m redmine_agent export --preset weekly-sla --out weekly.csv
 ### 4. Tickets assigned to me
 
 ```bash
-python -m redmine_agent my-tickets                 # open, most urgent first
-python -m redmine_agent my-tickets --status all --csv my-tickets.csv
+python harness.py my-tickets                 # open, most urgent first
+python harness.py my-tickets --status all --csv my-tickets.csv
 ```
 
 ### 5. Closure templates
@@ -156,9 +157,9 @@ fields to set (e.g. `Resolution: Fixed`), variables for the reviewer to fill in,
 it is suggested for.
 
 ```bash
-python -m redmine_agent templates list
-python -m redmine_agent templates preview bug-fixed 1234 --var release="v2.4.1"
-python -m redmine_agent templates create --file my-template.yaml
+python harness.py templates list
+python harness.py templates preview bug-fixed 1234 --var release="v2.4.1"
+python harness.py templates create --file my-template.yaml
 ```
 
 Notes are Jinja2 running in a sandbox. Example:
@@ -176,15 +177,16 @@ find candidates ──► draft proposal ──► YOU review (edit / approve / 
 ```
 
 ```bash
-python -m redmine_agent close candidates
-python -m redmine_agent close draft 1234 --template bug-fixed --var release="v2.4.1"
-python -m redmine_agent close auto-draft            # draft all candidates (the scheduler does this daily)
-python -m redmine_agent close review                # interactive: approve & close / edit / reject / skip
+python harness.py close candidates
+python harness.py close draft 1234 --template bug-fixed --var release="v2.4.1"
+python harness.py close auto-draft            # draft all candidates (the scheduler does this daily)
+python harness.py close review                # interactive: approve & close / edit / reject / skip
 ```
 
 You can also review on the dashboard's **Approvals** page. Built-in safety checks:
 
-- Only a human can approve.
+- Only a human can approve. With `python harness.py approver add "Your Name"`, every approval also needs
+  your PIN, which an AI agent never sees.
 - The approval covers the exact payload; editing it requires re-approval.
 - Tickets that changed since drafting become *stale*.
 - Redmine's workflow is checked before review, and the result is verified afterwards.
@@ -193,7 +195,41 @@ Full details are in [docs/permissions-and-approvals.md](docs/permissions-and-app
 
 ---
 
-## The AI agent
+## Use it from your AI terminal (agent skills)
+
+Already using **Claude Code**, **Codex CLI**, **Gemini CLI** or **GitHub Copilot CLI** on a subscription?
+Open it in this folder and it can operate the harness for you. No extra API key is needed.
+
+The repo ships eight skills in the open [Agent Skills](https://agentskills.io) format:
+
+- `.agents/skills/` is read by Codex, Gemini CLI, Copilot CLI, Cursor and OpenCode.
+- `.claude/skills/` is the same set for Claude Code.
+
+| Skill | Ask things like |
+|---|---|
+| `redmine-setup` | "connect the harness to our Redmine", "why does check fail?" |
+| `redmine-my-tickets` | "what should I work on next?", "show #1234" |
+| `redmine-dashboards` | "how is our SLA this month?", "team workload" |
+| `redmine-reports` | "export last week's SLA report as CSV" |
+| `redmine-daily-overview` | "give me today's overview", "send it to the team" |
+| `redmine-closure-templates` | "create a template for duplicate tickets" |
+| `redmine-ticket-closure` | "close my resolved tickets" → drafts proposals **you** approve |
+| `redmine-rest-api` | "list the versions of the infra project" (read-only API) |
+
+```bash
+claude                                                     # Claude Code    -> /redmine-my-tickets
+codex --config sandbox_workspace_write.network_access=true # Codex CLI      -> $redmine-my-tickets
+gemini                                                     # Gemini CLI     -> /skills list
+copilot                                                    # Copilot CLI    -> /skills list
+python harness.py skills install --tool all                # optional: use the skills from any folder
+```
+
+The agent can read, export and draft. **Approving a ticket change is yours alone**: use the dashboard,
+or `python harness.py close review` in your own terminal, plus your approver PIN if you registered one.
+
+Full guide: [docs/agent-skills.md](docs/agent-skills.md).
+
+## Other agent runtimes
 
 The agent definition lives in [`agent/`](agent/):
 
@@ -201,15 +237,15 @@ The agent definition lives in [`agent/`](agent/):
   levels.
 - [`system_prompt.md`](agent/system_prompt.md): the agent's instructions.
 
-There are three ways to use it.
+Besides the skills above, there are three ways to use it.
 
-**a) Terminal chat with any OpenAI-compatible LLM** (OpenAI, Azure OpenAI, Ollama, vLLM,
+**a) Built-in terminal chat with any OpenAI-compatible LLM API** (OpenAI, Azure OpenAI, Ollama, vLLM,
 LM Studio, OpenRouter, and others):
 
 ```bash
 # .env: LLM_BASE_URL=https://api.openai.com/v1  LLM_API_KEY=...  LLM_MODEL=gpt-4o-mini
 # local alternative: LLM_BASE_URL=http://localhost:11434/v1  LLM_MODEL=llama3.1
-python -m redmine_agent chat
+python harness.py chat
 you> which of my tickets are about to breach SLA?
 you> close #1234 with the bug-fixed template, release v2.4.1
      ... APPROVAL REQUIRED - the agent wants to make a change: (exact diff shown) ... type 'yes'
@@ -219,7 +255,7 @@ you> close #1234 with the bug-fixed template, release v2.4.1
 `.mcp.json` is included:
 
 ```bash
-python -m redmine_agent mcp
+python harness.py mcp
 ```
 
 Over MCP the agent can read and draft, but it **cannot approve**. You approve in the dashboard,
@@ -238,10 +274,14 @@ and then the agent may call `execute_approved_proposal`.
 ## Project layout
 
 ```
+harness.py              portable launcher used by humans and skills (finds .venv, works from any folder)
 redmine_agent/          Python package (CLI, REST client, guard, analytics, reports, workflow, web, agent, mock)
+.agents/skills/         agent skills (Codex, Gemini CLI, Copilot CLI, Cursor, OpenCode...)
+.claude/skills/         the same skills for Claude Code (+ .claude/settings.json permission rules)
+CLAUDE.md, GEMINI.md    point Claude Code / Gemini CLI at AGENTS.md
 agent/                  agent manifest + system prompt
 config/                 settings.example.yaml, closure_templates.yaml (starter templates)
-docs/                   architecture, Redmine REST API notes, permissions & approvals, scheduling
+docs/                   architecture, REST API notes, permissions & approvals, scheduling, agent skills
 tests/                  pytest suite - runs against the built-in mock Redmine
 AGENTS.md               rules for AI agents working in this repo
 .mcp.json               MCP client configuration
@@ -255,7 +295,7 @@ Runtime state is kept in `data/`, which git ignores. It holds the approval queue
 
 ```bash
 pip install -r requirements-dev.txt
-pytest                      # ~140 tests, all against the built-in mock Redmine - no network needed
+pytest                      # ~190 tests, all against the built-in mock Redmine - no network needed
 ```
 
 ## Troubleshooting

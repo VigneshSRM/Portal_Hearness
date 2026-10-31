@@ -51,20 +51,6 @@ def test_mask_secret():
     assert mask_secret("abcdefghijkl") == "abc******jkl" and mask_secret("") == ""
 
 
-@pytest.fixture()
-def cli_env(tmp_path, mock, monkeypatch):
-    (tmp_path / "config").mkdir()
-    (tmp_path / "config" / "settings.yaml").write_text(yaml.safe_dump({
-        "redmine": {"url": mock["url"], "api_key": "demo-api-key", "max_retries": 0},
-        "closure": {"seed_templates_file": SEED_TEMPLATES},
-    }), encoding="utf-8")
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("REDMINE_AGENT_HOME", str(tmp_path))
-    for var in ("REDMINE_URL", "REDMINE_API_KEY", "REDMINE_READ_ONLY", "REDMINE_AGENT_CONFIG"):
-        monkeypatch.delenv(var, raising=False)
-    return tmp_path
-
-
 def test_cli_read_commands(cli_env, capsys):
     assert cli.main(["check"]) == 0
     assert "current user: karthik" in capsys.readouterr().out

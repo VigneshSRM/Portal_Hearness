@@ -73,6 +73,25 @@ Other safeguards:
 | CLI `close review` / `close approve` | Needs an **interactive terminal** and a typed `yes`. With no TTY it refuses, which stops scripts and coding agents from approving silently. |
 | Agent chat (`chat`) | The agent's `close_ticket` call shows the exact change and waits for you to type `yes`. |
 | MCP clients | **Cannot approve.** They can draft proposals and run `execute_approved_proposal` only on proposals a person already approved. |
+| Terminal AI agents using the skills (Claude Code, Codex, Gemini CLI, Copilot CLI) | **Cannot approve.** The skills only read and draft, and `.claude/settings.json` blocks the approval commands. The CLI approval commands need a TTY. With approvers registered, they also need a PIN the agent never sees. |
+
+### Approver PINs (recommended with terminal AI agents)
+
+Terminal agents can drive interactive programs through pseudo-terminals, so the TTY check alone is not
+a strong guarantee. Register each person who may approve:
+
+```bash
+python harness.py approver add "Your Name"      # interactive; PIN typed hidden, stored as a salted PBKDF2 hash
+```
+
+How the PIN works once at least one approver exists:
+- **Every** approval must come from a registered approver *with their PIN*: CLI `close review` /
+  `close approve`, the dashboard's PIN field, or the built-in chat's approval prompt.
+- Wrong PINs are counted. Five failures lock that approver for 15 minutes.
+- Adding or removing approvers needs an existing approver's PIN.
+
+This protects against agents approving on their own. It does not protect against someone deliberately
+tampering with the harness's files, so keep agents' file changes reviewable.
 
 Reviewer names `agent`, `llm`, `assistant`, `automation`, `scheduler`, `system` and `mcp` are
 always rejected.

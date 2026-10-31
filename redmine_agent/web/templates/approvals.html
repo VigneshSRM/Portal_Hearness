@@ -9,6 +9,9 @@
   {% else %}
     <label>Reviewer <input id="reviewerName" placeholder="Your name" oninput="Harness.setReviewer(this.value)" required></label>
   {% endif %}
+  {% if pin_required %}
+    <label title="Approvals need your approver PIN. It is never stored by the browser.">PIN <input id="reviewerPin" type="password" autocomplete="off" placeholder="Approver PIN" size="10"></label>
+  {% endif %}
   <button class="btn ghost" type="button" onclick="Harness.openDraft(null, '')">Draft for ticket #</button>
 </div>
 {% endblock %}
@@ -100,4 +103,4 @@
 </div>
 {% include "_draft_dialog.html" %}
 {% endblock %}
-{% block scripts %}<script>Harness.templates = {{ templates_list|tojson }}; Harness.authUser = {{ auth_user|tojson }}; Harness.initReviewer();</script>{% endblock %}
+{% block scripts %}<script>Harness.templates = {{ templates_list|tojson }}; Harness.authUser = {{ auth_user|tojson }}; Harness.pinRequired = {{ pin_required|tojson }}; Harness.initReviewer();</script>{% endblock %}
